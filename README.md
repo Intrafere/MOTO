@@ -10,23 +10,14 @@
 
 ---
 
-## 🎯 What This System Does
+## Description of "MOTO - Math Variant"
 
-MOTO is a three-tier autonomous AI research system:
-
-- **Tier 1 (Aggregator)**: 1-10 AI agents work in parallel to explore mathematical concepts and build validated knowledge databases
-- **Tier 2 (Compiler)**: Sequential AI agents compile knowledge into coherent academic papers with rigorous validation
-- **Tier 3 (Autonomous Research)**: System autonomously selects topics, generates papers, and synthesizes final answers
+MOTO (Multi Output Token Orchestrator) is a high-risk high-reward (novelty seeking AI) mathematics researcher designed to run for days at a time after pressing start without user interaction. This program can support multiple simultaneous models working in parallel from either local host LM studio, OpenRouter API key, or both.
 
 ### Key Features
 
-- 🤖 **Multi-Agent Architecture**: Configurable 1-10 parallel submitters + 1 validator
-- 🧠 **Advanced RAG System**: 4-stage retrieval pipeline with semantic search and citation tracking
-- 📄 **Automated Paper Generation**: Creates structured academic papers with mathematical rigor
-- 🔄 **Autonomous Topic Selection**: AI chooses research avenues based on high-level goals
-- 🔒 **OpenRouter Integration**: Supports both local (LM Studio) and cloud (OpenRouter) models
-- ⚡ **API Boost Mode**: Selective task acceleration with usage tracking
-- 📊 **Real-time Monitoring**: Live metrics, acceptance rates, and workflow visualization
+- 🤖 **Autonomous Topic Selection, Brainstorming, and Paper Generation**: AI chooses research avenues based on high-level goals and produces you a final answer with ZERO extra user input. Let MOTO run for days using the best models without touching it, or for a few hours using a faster draft model. How deep you research and how long it takes is left up to you, the user.
+- **OpenRouter Integration**: Supports both local (LM Studio) and cloud (OpenRouter) models. Use your local LM studio models ran offline from your computer or add your OpenRouter API key to compete and team up 3rd party models from the largest closed source LLMs like ChatGPT, Claude, DeepSeek, Gemini and Perplexity
 
 ---
 
@@ -43,14 +34,14 @@ Before installation, you need:
    - If using open router, then download and load at least one model (e.g., DeepSeek, Llama, Qwen - older models and some models below 12 billion parameters may struggle, however it is always worth a try!)
    - **Load the LM Studio RAG agent [optional but HIGHLY recommended for much faster outputs/answers]**: Load the embedding model `nomic-ai/nomic-embed-text-v1.5` in your LM studio "Developer" tab (server tab) (search for "nomic-ai/nomic-embed-text-v1.5" to download it in the LM studio downloads center). Please note: you may need to enable "Power User" or "Developer" to see this developer tab - this server will let you load the amount and capacity of simultaneous models that your PC will suport. In this develop tab is where you load both your nomic-ai embedding agent and any optional local hosted agents you want to use in the program (I.e. GPT OSS 20b, DeepSeek 32B, etc). **If you do not not download LM studio and enable the Nomic agent the system will run much slower and cost a slightly more due to having to use the paid service OpenRouter for RAG calls.**
    - Start the local server (port 1234)
-4.) **If using cloud AI - Get an OpenRouter API key**: Sign up at OpenRouter.ai and get a paid or free API key to use the most powerful cloud models available from your favorite providers. OpenRouter may also offer a certain amount of free API calls per day with your account key. When you download the MOTO deep research harness, you can see which models are free by checking the "show only free models" check box(es) in the MOTO app settings.
+4. **If using cloud AI - Get an OpenRouter API key**: Sign up at OpenRouter.ai and get a paid or free API key to use the most powerful cloud models available from your favorite providers. OpenRouter may also offer a certain amount of free API calls per day with your account key. When you download the MOTO deep research harness, you can see which models are free by checking the "show only free models" check box(es) in the MOTO app settings.
 
 ### Installation
 
 #### Windows (One-Click Launcher)
 
 1. Clone or download this repository
-2. Start LM Studio and load your models
+2. Start LM Studio and load your models and "nomic-embed-text-v1.5" agent **and/or** enter OpenRouter API key
 3. **Double-click `launch.bat`**
 4. The launcher will:
    - Check all prerequisites
@@ -94,30 +85,7 @@ Then open `http://localhost:5173` in your browser.
 
 ## 📖 Usage Guide
 
-### Part 1: Aggregator (Knowledge Building)
-
-1. Go to **Aggregator Interface** tab
-2. Enter your research prompt (e.g., "Explore connections between modular forms and Galois representations")
-3. Configure settings:
-   - Select submitter and validator models
-   - Set context window sizes (default: 131072 tokens)
-   - Configure 1-10 submitters (default: 3)
-4. Click **Start Aggregator**
-5. Monitor progress in **Aggregator Logs** tab
-6. View accepted submissions in **Live Results** tab
-
-### Part 2: Compiler (Paper Generation)
-
-1. Go to **Compiler Interface** tab
-2. Enter compiler-directing prompt (e.g., "Build a paper titled 'Modular Forms in the Langlands Program'")
-3. Configure settings:
-   - Select validator, high-context, and high-parameter models
-   - Set context windows and output token limits
-4. Click **Start Compiler**
-5. Watch real-time paper construction in **Live Paper** tab
-6. Monitor metrics in **Compiler Logs** tab
-
-### Part 3: Autonomous Research
+### Mode 1 - Autonomous Mode (multi-paper writer):
 
 1. Go to **Autonomous Research** tab
 2. Enter high-level research goal (e.g., "Solve the Langlands Bridge problem")
@@ -129,6 +97,31 @@ Then open `http://localhost:5173` in your browser.
    - Generate complete papers
    - Create final answer synthesis (after 5 papers)
 
+### Mode 2 - Single Paper Writer (advanced/manual mode):
+
+#### Mode 2, step 1: Aggregator (Knowledge Building)
+
+1. Go to **Aggregator Interface** tab
+2. Enter your research prompt (e.g., "Explore connections between modular forms and Galois representations")
+3. Configure settings:
+   - Select submitter and validator models
+   - Set context window sizes (default: 131072 tokens)
+   - Configure 1-10 submitters (default: 3)
+4. Click **Start Aggregator**
+5. Monitor progress in **Aggregator Logs** tab
+6. View accepted submissions in **Live Results** tab
+
+#### Mode 2, step 2: Compiler (Paper Generation)
+
+1. Go to **Compiler Interface** tab
+2. Enter compiler-directing prompt (e.g., "Build a paper titled 'Modular Forms in the Langlands Program'")
+3. Configure settings:
+   - Select validator, high-context, and high-parameter models
+   - Set context windows and output token limits
+4. Click **Start Compiler**
+5. Watch real-time paper construction in **Live Paper** tab
+6. Monitor metrics in **Compiler Logs** tab
+
 ---
 
 ## 🛠️ System Architecture
@@ -138,7 +131,7 @@ Then open `http://localhost:5173` in your browser.
 - **Backend**: Python 3.8+, FastAPI, Uvicorn
 - **Frontend**: React, Vite, Tailwind CSS
 - **AI**: LM Studio API, OpenRouter API
-- **RAG**: ChromaDB, Nomic Embeddings
+- **RAG**: ChromaDB, Nomic Embeddings, or OpenRouter embeddings fallback if LM studio is unavailable (not recommended - slower).
 - **WebSocket**: Real-time updates
 
 ### Key Components
@@ -245,6 +238,7 @@ All configurable per role:
 - Review validator reasoning in logs
 - Ensure prompt is clear and specific
 - Use larger models for better results
+- View the learning curve analysis on the Intrafere.com website and ensure you are not just at a learning curve wall - 100's of rejections in a row before the first acceptance in the brainstorming session can be common.
 
 **System running slow**
 - Use faster/smaller models
@@ -263,6 +257,11 @@ All configurable per role:
 - System will automatically offload to RAG
 - Check logs for detailed token usage
 
+**JSON and output errors**
+- Monitor your model(s) output(s) occassionally to see if its stuck in output loops and is repeatedly utilizing its entire output token budget - this is a sign the model runtime instance from either LM Studio or OpenRouter has corrupted. If this is the case you will either need to Switch OpenRouter hosts for that model, switch models, or if using LM studio you must unload and reload the model. However if this happens once, it is likely to happen again so you should either try to switch hosts (if using OpenRouter), switch runtime engines (if using LM studio), or switch models entirely as some models may be more vulnerable to this than others. This issue does not appear to be related to MOTO harness and the MOTO developers have no control over this deterministic model-loop corruption state. The repetitive nature of the harness appear to stress certain engines, for example when using AMD comptable engines, ROCm *may* have more instabilities than Vulkan as of 1/11/2026. This is an odd bug and it is unclear if this is related to the 3rd party runtime engine's K/V caching mechanism or some other feature of the code. If you find any information on this bug please submit it to the GitHub.
+
+**JSON truncation errors**
+- Ensure you are not experiencing the output error looping mentioned above that some LLM runtime engines seem to experience, if your JSON truncation is not a result of looping then you should try increasing your models max output tokens. It is highly likely that your model was truncated because you did not set enough output tokens (20% or more of your token budget being allotted for token output is standard practice, longer thinking models like DeepSeek V3.2 Speciale may require much larger splits such as (164K total tokens, 64K reserved for output tokens), however most models function great closer to the 20% output budget mark.
 ---
 
 ## 📚 Documentation
