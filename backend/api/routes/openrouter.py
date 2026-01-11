@@ -1,0 +1,325 @@
+"""
+API routes for OpenRouter configuration and model management.
+
+This module handles:
+- Global OpenRouter API key management (for per-role model selection)
+- LM Studio availability checking
+- OpenRouter model listing (using stored API key)
+- Model provider listing
+
+Note: This is separate from boost routes which use a separate API key for boost mode.
+"""
+from fastapi import APIRouter, HTTPException, Header
+from pydantic import BaseModel
+from typing import Dict, Any, Optional
+import logging
+import json
+from pathlib import Path
+
+from backend.shared.config import rag_config
+from backend.shared.lm_studio_client import lm_studio_client
+from backend.shared.openrouter_client import OpenRouterClient
+from backend.shared.api_client_manager import api_client_manager
+
+router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+class SetApiKeyRequest(BaseModel):
+    """Request body for setting the global OpenRouter API key."""
+    api_key: str
+
+
+@router.get("/api/openrouter/lm-studio-availability")
+async def check_lm_studio_availability() -> Dict[str, Any]:
+    """
+    Check if LM Studio server is available and has models loaded.
+    
+    This endpoint is called on frontend startup to determine if the system
+    should default to OpenRouter (when LM Studio is unavailable).
+    
+    Returns:
+        Dict with availability status:
+        - available: bool - True if LM Studio server is reachable
+        - has_models: bool - True if at least one model is loaded
+        - model_count: int - Number of loaded models
+        - models: List[str] - List of loaded model IDs
+        - error: Optional[str] - Error message if unavailable
+    """
+    try:
+        result = await lm_studio_client.check_availability()
+        return {
+            "success": True,
+            **result
+        }
+    except Exception as e:
+        logger.error(f"Error checking LM Studio availability: {e}")
+        return {
+            "success": True,  # Endpoint worked, but LM Studio may not be available
+            "available": False,
+            "has_models": False,
+            "model_count": 0,
+            "models": [],
+            "error": str(e)
+        }
+
+
+@router.post("/api/openrouter/set-api-key")
+async def set_api_key(request: SetApiKeyRequest) -> Dict[str, Any]:
+    """
+    Set the global OpenRouter API key for per-role model selection.
+    
+    This key is stored in memory and used by the API client manager for
+    roles configured to use OpenRouter. It's separate from the boost API key.
+    
+    Args:
+        request: Request with api_key field
+        
+    Returns:
+        Success status and validation result
+    """
+    try:
+        if not request.api_key:
+            raise HTTPException(status_code=400, detail="API key is required")
+        
+        # Validate API key by testing connection
+        client = OpenRouterClient(request.api_key)
+        try:
+            models = await client.list_models()
+            
+            if not models:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Failed to connect to OpenRouter or no models available. Please check your API key."
+                )
+            
+            # Store the API key globally
+            rag_config.openrouter_api_key = request.api_key
+            rag_config.openrouter_enabled = True
+            
+            # Also configure the API client manager
+            api_client_manager.set_openrouter_api_key(request.api_key)
+            
+            logger.info(f"Global OpenRouter API key set successfully. {len(models)} models available.")
+            
+            return {
+                "success": True,
+                "message": "OpenRouter API key validated and saved",
+                "model_count": len(models)
+            }
+        finally:
+            await client.close()
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to set OpenRouter API key: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to validate API key: {str(e)}")
+
+
+@router.delete("/api/openrouter/api-key")
+async def clear_api_key() -> Dict[str, Any]:
+    """
+    Clear the global OpenRouter API key.
+    
+    This disables OpenRouter for all roles that were configured to use it.
+    Roles will need to be reconfigured to use LM Studio.
+    
+    Returns:
+        Success status
+    """
+    try:
+        rag_config.openrouter_api_key = None
+        rag_config.openrouter_enabled = False
+        api_client_manager.set_openrouter_api_key(None)
+        
+        logger.info("Global OpenRouter API key cleared")
+        
+        return {
+            "success": True,
+            "message": "OpenRouter API key cleared"
+        }
+    except Exception as e:
+        logger.error(f"Failed to clear OpenRouter API key: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to clear API key: {str(e)}")
+
+
+@router.get("/api/openrouter/api-key-status")
+async def get_api_key_status() -> Dict[str, Any]:
+    """
+    Get the current status of the global OpenRouter API key.
+    
+    Returns:
+        Dict with:
+        - has_key: bool - True if an API key is configured
+        - enabled: bool - True if OpenRouter is enabled
+    """
+    return {
+        "success": True,
+        "has_key": bool(rag_config.openrouter_api_key),
+        "enabled": rag_config.openrouter_enabled
+    }
+
+
+@router.get("/api/openrouter/models")
+async def get_models(api_key: Optional[str] = None, free_only: bool = False) -> Dict[str, Any]:
+    """
+    Fetch available OpenRouter models.
+    
+    If api_key is provided, uses that key. Otherwise uses the stored global key.
+    
+    Args:
+        api_key: Optional API key to use instead of stored key (query parameter)
+        free_only: If True, only return models with $0 pricing (query parameter)
+        
+    Returns:
+        List of available models with their details
+    """
+    try:
+        # Use provided key or fall back to stored key
+        key_to_use = api_key or rag_config.openrouter_api_key
+        
+        if not key_to_use:
+            raise HTTPException(
+                status_code=400,
+                detail="No OpenRouter API key available. Please set a global API key or provide one."
+            )
+        
+        client = OpenRouterClient(key_to_use)
+        try:
+            models = await client.list_models(free_only=free_only)
+            
+            return {
+                "success": True,
+                "models": models,
+                "count": len(models),
+                "free_only": free_only
+            }
+        finally:
+            await client.close()
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to fetch OpenRouter models: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch models: {str(e)}")
+
+
+@router.get("/api/openrouter/providers/{model_id:path}")
+async def get_model_providers(model_id: str, authorization: Optional[str] = Header(None)) -> Dict[str, Any]:
+    """
+    Fetch available providers for a specific OpenRouter model.
+    
+    Args:
+        model_id: The model ID to get providers for (path parameter)
+        authorization: Optional API key via Authorization header (Bearer token).
+                      If not provided, uses stored global key.
+        
+    Returns:
+        List of available providers for the model
+    """
+    try:
+        # Extract API key from Authorization header
+        api_key = None
+        if authorization:
+            api_key = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
+        
+        # Use provided key or fall back to stored key
+        key_to_use = api_key or rag_config.openrouter_api_key
+        
+        if not key_to_use:
+            raise HTTPException(
+                status_code=400,
+                detail="No OpenRouter API key available. Please set a global API key or provide one."
+            )
+        
+        if not model_id:
+            raise HTTPException(status_code=400, detail="Model ID is required")
+        
+        client = OpenRouterClient(key_to_use)
+        try:
+            providers = await client.get_model_providers(model_id)
+            
+            return {
+                "success": True,
+                "model_id": model_id,
+                "providers": providers
+            }
+        finally:
+            await client.close()
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to fetch providers for model {model_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch providers: {str(e)}")
+
+
+@router.get("/api/model-cache")
+async def get_model_cache() -> Dict[str, str]:
+    """
+    Get cached model mappings (display name -> API ID).
+    
+    This endpoint serves pre-cached OpenRouter model mappings
+    for the frontend profile system to convert display names to API IDs.
+    
+    Returns:
+        Dict mapping model display names to OpenRouter API IDs
+    """
+    try:
+        cache_file = Path(__file__).parent.parent.parent / "data" / "model_cache.json"
+        
+        if not cache_file.exists():
+            logger.warning(f"Model cache not found at {cache_file}")
+            return {}
+        
+        with open(cache_file, 'r') as f:
+            cache = json.load(f)
+        
+        logger.debug(f"Serving {len(cache)} cached model mappings")
+        return cache
+        
+    except Exception as e:
+        logger.error(f"Failed to read model cache: {e}")
+        return {}
+
+
+@router.post("/api/openrouter/test-connection")
+async def test_connection(request: SetApiKeyRequest) -> Dict[str, Any]:
+    """
+    Test connection to OpenRouter with a provided API key.
+    
+    This endpoint validates an API key without storing it.
+    
+    Args:
+        request: Request with api_key field
+        
+    Returns:
+        Connection test result with model count
+    """
+    try:
+        if not request.api_key:
+            raise HTTPException(status_code=400, detail="API key is required")
+        
+        client = OpenRouterClient(request.api_key)
+        try:
+            models = await client.list_models()
+            
+            return {
+                "success": True,
+                "connected": True,
+                "model_count": len(models),
+                "message": f"Successfully connected to OpenRouter. {len(models)} models available."
+            }
+        finally:
+            await client.close()
+            
+    except Exception as e:
+        logger.error(f"OpenRouter connection test failed: {e}")
+        return {
+            "success": True,  # Endpoint worked
+            "connected": False,
+            "model_count": 0,
+            "message": f"Failed to connect: {str(e)}"
+        }
+

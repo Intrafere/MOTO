@@ -1,0 +1,583 @@
+/**
+ * AutonomousResearchLogs - Metrics and event log for autonomous research.
+ * Shows submission accept/reject statistics broken down by each submitter role.
+ * Includes API call logging with full request/response details.
+ */
+import React, { useRef, useEffect, useMemo, useState, useCallback } from 'react';
+import { autonomousAPI } from '../../services/api';
+import './AutonomousResearch.css';
+
+const AutonomousResearchLogs = ({ stats, events }) => {
+  const eventsEndRef = useRef(null);
+  const [expandedSubmitters, setExpandedSubmitters] = useState({});
+  
+  // API Logs state
+  const [apiLogs, setApiLogs] = useState([]);
+  const [apiStats, setApiStats] = useState(null);
+  const [apiLogsLoading, setApiLogsLoading] = useState(true);
+  const [expandedApiLogIdx, setExpandedApiLogIdx] = useState(null);
+  const [apiAutoRefresh, setApiAutoRefresh] = useState(true);
+  const abortControllerRef = useRef(null);
+
+  useEffect(() => {
+    if (eventsEndRef.current) {
+      eventsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [events]);
+
+  // Fetch API logs
+  const fetchApiLogs = useCallback(async () => {
+    // Abort previous request if still pending
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    // Create new abort controller for this request
+    abortControllerRef.current = new AbortController();
+    
+    try {
+      const response = await autonomousAPI.getApiLogs(100);
+      if (response.success) {
+        setApiLogs(response.logs || []);
+        setApiStats(response.stats || null);
+      }
+    } catch (error) {
+      // Don't log abort errors as they're expected on cleanup
+      if (error.name !== 'AbortError') {
+        console.error('Failed to fetch autonomous API logs:', error);
+      }
+    } finally {
+      setApiLogsLoading(false);
+    }
+  }, []);
+
+  // Initial fetch and auto-refresh for API logs
+  useEffect(() => {
+    fetchApiLogs();
+
+    let interval;
+    if (apiAutoRefresh) {
+      // Set interval to refresh every 5 seconds (skip first call since we already called above)
+      interval = setInterval(fetchApiLogs, 5000);
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+      // Cancel any pending requests on unmount
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, [fetchApiLogs, apiAutoRefresh]);
+
+  // Handle clear API logs
+  const handleClearApiLogs = async () => {
+    if (!window.confirm('Are you sure you want to clear all API logs?')) {
+      return;
+    }
+
+    try {
+      await autonomousAPI.clearApiLogs();
+      setApiLogs([]);
+      setApiStats(null);
+      setExpandedApiLogIdx(null);
+    } catch (error) {
+      console.error('Failed to clear API logs:', error);
+    }
+  };
+
+  // Toggle API log expansion
+  const toggleApiLogExpand = (index) => {
+    setExpandedApiLogIdx(expandedApiLogIdx === index ? null : index);
+  };
+
+  // Copy to clipboard
+  const copyToClipboard = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (error) {
+      console.error('Failed to copy to clipboard:', error);
+    }
+  };
+
+  // Format duration
+  const formatDuration = (ms) => {
+    if (ms === null || ms === undefined) return '-';
+    if (ms < 1000) return `${Math.round(ms)}ms`;
+    return `${(ms / 1000).toFixed(1)}s`;
+  };
+
+  // Format timestamp
+  const formatTimestamp = (timestamp) => {
+    try {
+      const date = new Date(timestamp);
+      return date.toLocaleString();
+    } catch {
+      return timestamp;
+    }
+  };
+
+  // Get phase label
+  const getPhaseLabel = (phase) => {
+    switch (phase) {
+      case 'topic_selection': return 'Topic';
+      case 'brainstorm': return 'Brainstorm';
+      case 'paper_compilation': return 'Paper';
+      case 'tier3': return 'Tier 3';
+      default: return phase || 'Unknown';
+    }
+  };
+
+  // Calculate per-submitter statistics from individual events
+  // These come from the aggregator's direct 'submission_accepted'/'submission_rejected' events
+  const submitterStats = useMemo(() => {
+    const stats = {};
+    
+    if (!events || events.length === 0) return stats;
+    
+    events.forEach((event) => {
+      // Listen for aggregator's direct events (submission_accepted/rejected)
+      if (event.event === 'submission_accepted' || event.event === 'submission_rejected') {
+        const data = event.data || {};
+        const submitterId = data.submitter_id;
+        const isAccepted = event.event === 'submission_accepted';
+        
+        if (submitterId) {
+          const key = `${submitterId}`;
+          
+          if (!stats[key]) {
+            stats[key] = {
+              submitter_id: submitterId,
+              model: data.submitter_model || 'N/A',
+              provider: data.submitter_provider || 'lm_studio',
+              accepted: 0,
+              rejected: 0,
+              all_events: []
+            };
+          }
+          
+          // Update model info if available (latest event wins)
+          if (data.submitter_model) {
+            stats[key].model = data.submitter_model;
+          }
+          if (data.submitter_provider) {
+            stats[key].provider = data.submitter_provider;
+          }
+          
+          if (isAccepted) {
+            stats[key].accepted++;
+          } else {
+            stats[key].rejected++;
+          }
+          
+          // Store the event for this specific submitter
+          stats[key].all_events.unshift({
+            type: isAccepted ? 'accepted' : 'rejected',
+            timestamp: event.timestamp,
+            total: isAccepted ? data.total_acceptances : data.total_rejections
+          });
+        }
+      }
+    });
+    
+    return stats;
+  }, [events]);
+
+  const formatEventMessage = (event) => {
+    const data = event.data || {};
+    
+    switch (event.event) {
+      case 'auto_research_started':
+        return 'Autonomous research started';
+      case 'auto_research_stopped':
+        return `Research stopped. Total: ${data.final_stats?.total_papers_completed || 0} papers`;
+      case 'topic_selected':
+        return `Topic selected: ${data.action} - ${data.topic_prompt || data.topic_id}`;
+      case 'topic_selection_rejected':
+        return `Topic rejected: ${data.reasoning?.substring(0, 100)}...`;
+      // Aggregator's direct per-submission events
+      case 'submission_accepted': {
+        const modelName = data.submitter_model ? (data.submitter_model.split('/')[1] || data.submitter_model.substring(0, 15)) : '';
+        return `Submitter ${data.submitter_id} [${modelName}]: ✓ ACCEPTED (total: ${data.total_acceptances})`;
+      }
+      case 'submission_rejected': {
+        const modelName = data.submitter_model ? (data.submitter_model.split('/')[1] || data.submitter_model.substring(0, 15)) : '';
+        return `Submitter ${data.submitter_id} [${modelName}]: ✗ REJECTED (total: ${data.total_rejections})`;
+      }
+      case 'completion_review_started':
+        return `[${data.topic_id}] Completion review at ${data.submission_count} submissions`;
+      case 'completion_review_result':
+        return `[${data.topic_id}] Review decision: ${data.decision}`;
+      case 'paper_writing_started':
+        return `Starting paper: "${data.title}"`;
+      case 'paper_section_completed':
+        return `Section complete: ${data.section_type}`;
+      case 'paper_completed':
+        return `Paper complete: "${data.title}" (${data.word_count?.toLocaleString()} words)`;
+      case 'paper_redundancy_review':
+        return data.should_remove 
+          ? `Redundancy: Removed ${data.paper_id}` 
+          : 'Redundancy: No removal needed';
+      default:
+        return event.event;
+    }
+  };
+
+  const getEventClass = (event) => {
+    const eventName = event.event || '';
+    if (eventName.includes('completed') || eventName.includes('accepted') || eventName === 'submission_accepted') {
+      return 'log-success';
+    }
+    if (eventName.includes('rejected') || eventName === 'submission_rejected') {
+      return 'log-reject';
+    }
+    if (eventName.includes('started') || eventName.includes('review')) {
+      return 'log-info';
+    }
+    return '';
+  };
+
+  const toggleSubmitterExpanded = (submitterId) => {
+    setExpandedSubmitters(prev => ({
+      ...prev,
+      [submitterId]: !prev[submitterId]
+    }));
+  };
+
+  return (
+    <div className="autonomous-logs">
+      {/* Metrics Grid */}
+      <div className="logs-metrics">
+        <div className="metric-card">
+          <span className="metric-value">{stats?.total_brainstorms_created || 0}</span>
+          <span className="metric-label">Brainstorms</span>
+        </div>
+        
+        <div className="metric-card">
+          <span className="metric-value">{stats?.total_brainstorms_completed || 0}</span>
+          <span className="metric-label">Completed</span>
+        </div>
+        
+        <div className="metric-card">
+          <span className="metric-value">{stats?.total_papers_completed || 0}</span>
+          <span className="metric-label">Papers</span>
+        </div>
+        
+        <div className="metric-card">
+          <span className="metric-value">{stats?.total_papers_archived || 0}</span>
+          <span className="metric-label">Archived</span>
+        </div>
+        
+        <div className="metric-card">
+          <span className="metric-value">{stats?.total_submissions_accepted || 0}</span>
+          <span className="metric-label">Accepted</span>
+        </div>
+        
+        <div className="metric-card">
+          <span className="metric-value">{stats?.total_submissions_rejected || 0}</span>
+          <span className="metric-label">Rejected</span>
+        </div>
+        
+        <div className="metric-card">
+          <span className="metric-value">
+            {((stats?.acceptance_rate || 0) * 100).toFixed(1)}%
+          </span>
+          <span className="metric-label">Accept Rate</span>
+        </div>
+        
+        <div className="metric-card">
+          <span className="metric-value">{stats?.completion_reviews_run || 0}</span>
+          <span className="metric-label">Reviews</span>
+        </div>
+        
+        <div className="metric-card">
+          <span className="metric-value">{stats?.topic_selection_rejections || 0}</span>
+          <span className="metric-label">Topic Rejects</span>
+        </div>
+        
+        <div className="metric-card">
+          <span className="metric-value">{stats?.paper_redundancy_reviews_run || 0}</span>
+          <span className="metric-label">Redundancy</span>
+        </div>
+      </div>
+
+      {/* Per-Submitter Statistics */}
+      <h4 style={{ marginTop: '20px' }}>Per-Submitter Statistics</h4>
+      <div className="submitter-stats-container">
+        {Object.keys(submitterStats).length === 0 ? (
+          <div className="empty-state">
+            No submission data yet.
+          </div>
+        ) : (
+          Object.values(submitterStats)
+            .sort((a, b) => parseInt(a.submitter_id) - parseInt(b.submitter_id))
+            .map((submitter) => {
+              const total = submitter.accepted + submitter.rejected;
+              const acceptRate = total > 0 ? ((submitter.accepted / total) * 100).toFixed(1) : 0;
+              const isExpanded = expandedSubmitters[submitter.submitter_id];
+              
+              return (
+                <div 
+                  key={submitter.submitter_id} 
+                  className="submitter-stat-card"
+                >
+                  <div 
+                    className="submitter-header"
+                    onClick={() => toggleSubmitterExpanded(submitter.submitter_id)}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <span className="submitter-title">
+                      Submitter {submitter.submitter_id}
+                      {submitter.submitter_id === '1' && ' (Main)'}
+                      {isExpanded ? ' ▼' : ' ▶'}
+                    </span>
+                    <span className="submitter-model">
+                      {submitter.model ? (submitter.model.split('/')[1] || submitter.model.substring(0, 15)) : 'N/A'}
+                    </span>
+                  </div>
+                  
+                  <div className="submitter-stats-line">
+                    <span className="stat-item success">
+                      ✓ {submitter.accepted} Accepted
+                    </span>
+                    <span className="stat-item reject">
+                      ✗ {submitter.rejected} Rejected
+                    </span>
+                    <span className="stat-item info">
+                      {acceptRate}% Rate
+                    </span>
+                  </div>
+
+                  {/* Expanded Details - Show ALL events for this submitter */}
+                  {isExpanded && (
+                    <div className="submitter-expanded">
+                      <div className="detail-section">
+                        <strong>Model Details:</strong>
+                        <div className="detail-item">
+                          <span>Model:</span> {submitter.model}
+                        </div>
+                        <div className="detail-item">
+                          <span>Provider:</span> {submitter.provider}
+                        </div>
+                      </div>
+                      
+                      <div className="detail-section">
+                        <strong>Event Log for Submitter {submitter.submitter_id}:</strong>
+                        {submitter.all_events.length === 0 ? (
+                          <div style={{ fontSize: '0.9em', color: '#999' }}>No events</div>
+                        ) : (
+                          <div className="recent-events-list">
+                            {submitter.all_events.map((evt, idx) => (
+                              <div key={idx} className={`recent-event ${evt.type}`}>
+                                <span className="event-type">
+                                  {evt.type === 'accepted' ? '✓' : '✗'}
+                                </span>
+                                <span className="event-count">#{evt.total}</span>
+                                <span className="event-time">
+                                  {new Date(evt.timestamp).toLocaleTimeString()}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+        )}
+      </div>
+
+      {/* API Call Logs Section */}
+      <div className="api-logs-section" style={{ marginTop: '30px' }}>
+        <div className="api-logs-header">
+          <h3>API Call Logs</h3>
+          <div className="api-logs-actions">
+            <label className="auto-refresh-toggle">
+              <input
+                type="checkbox"
+                checked={apiAutoRefresh}
+                onChange={(e) => setApiAutoRefresh(e.target.checked)}
+              />
+              Auto-refresh
+            </label>
+            <button onClick={fetchApiLogs} className="refresh-btn" title="Refresh now">
+              Refresh
+            </button>
+            <button 
+              onClick={handleClearApiLogs} 
+              className="clear-btn"
+              disabled={apiLogs.length === 0}
+            >
+              Clear Logs
+            </button>
+          </div>
+        </div>
+
+        {/* API Stats Summary */}
+        {apiStats && (
+          <div className="api-stats">
+            <div className="stat-card">
+              <span className="stat-value">{apiStats.total_calls}</span>
+              <span className="stat-label">Total API Calls</span>
+            </div>
+            <div className="stat-card success">
+              <span className="stat-value">{apiStats.successful_calls}</span>
+              <span className="stat-label">Successful</span>
+            </div>
+            <div className="stat-card error">
+              <span className="stat-value">{apiStats.failed_calls}</span>
+              <span className="stat-label">Failed</span>
+            </div>
+            <div className="stat-card">
+              <span className="stat-value">
+                {(apiStats.success_rate * 100).toFixed(1)}%
+              </span>
+              <span className="stat-label">Success Rate</span>
+            </div>
+          </div>
+        )}
+
+        {/* Stats by Phase */}
+        {apiStats && apiStats.by_phase && Object.keys(apiStats.by_phase).length > 0 && (
+          <div className="phase-stats">
+            <span className="phase-stats-label">By Phase:</span>
+            {Object.entries(apiStats.by_phase).map(([phase, count]) => (
+              <span key={phase} className="phase-stat-badge">
+                {getPhaseLabel(phase)}: {count}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* API Logs List */}
+        <div className="api-logs-list">
+          {apiLogsLoading ? (
+            <div className="logs-loading">Loading API logs...</div>
+          ) : apiLogs.length === 0 ? (
+            <div className="logs-empty">
+              <p>No API calls logged yet.</p>
+              <p className="logs-empty-hint">
+                Start autonomous research to see API call logs here.
+              </p>
+            </div>
+          ) : (
+            apiLogs.map((log, index) => (
+              <div 
+                key={index} 
+                className={`api-log-entry ${log.success ? 'success' : 'error'} ${expandedApiLogIdx === index ? 'expanded' : ''}`}
+              >
+                <div 
+                  className="log-summary"
+                  onClick={() => toggleApiLogExpand(index)}
+                >
+                  <div className="log-status">
+                    {log.success ? '✓' : '✗'}
+                  </div>
+                  <div className="log-info">
+                    <div className="log-task">
+                      <span className="log-task-id">{log.task_id}</span>
+                      <span className="log-phase-badge">{getPhaseLabel(log.phase)}</span>
+                    </div>
+                    <div className="log-meta">
+                      <span className="log-model">{log.model}</span>
+                      <span className="log-provider-badge">{log.provider === 'openrouter' ? 'OR' : 'LMS'}</span>
+                      <span className="log-duration">{formatDuration(log.duration_ms)}</span>
+                      {log.tokens_used && (
+                        <span className="log-tokens">{log.tokens_used} tokens</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="log-timestamp">{formatTimestamp(log.timestamp)}</div>
+                  <div className="log-expand-icon">{expandedApiLogIdx === index ? '▼' : '▶'}</div>
+                </div>
+
+                {expandedApiLogIdx === index && (
+                  <div className="log-details">
+                    <div className="log-detail-section">
+                      <h4>Role</h4>
+                      <pre>{log.role_id}</pre>
+                    </div>
+
+                    {log.error && (
+                      <div className="log-detail-section error">
+                        <h4>Error</h4>
+                        <pre>{log.error}</pre>
+                      </div>
+                    )}
+
+                    <div className="log-detail-section">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <h4>Sent Prompt</h4>
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            copyToClipboard(log.prompt_full);
+                          }}
+                          className="copy-btn"
+                          title="Copy full prompt to clipboard"
+                        >
+                          Copy Full
+                        </button>
+                      </div>
+                      <pre className="log-preview">{log.prompt_preview || '(empty)'}</pre>
+                    </div>
+
+                    <div className="log-detail-section">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <h4>Received Response</h4>
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            copyToClipboard(log.response_full);
+                          }}
+                          className="copy-btn"
+                          title="Copy full response to clipboard"
+                        >
+                          Copy Full
+                        </button>
+                      </div>
+                      <pre className="log-response">{log.response_full || log.response_preview || '(empty)'}</pre>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* Event Log */}
+      <h4 style={{ marginTop: '20px' }}>Event Log</h4>
+      <div className="logs-events">
+        {(!events || events.length === 0) ? (
+          <div className="empty-state">
+            No events recorded yet.
+          </div>
+        ) : (
+          events.map((event, index) => (
+            <div 
+              key={index} 
+              className={`log-entry ${getEventClass(event)}`}
+            >
+              <span className="log-time">
+                {new Date(event.timestamp).toLocaleTimeString()}
+              </span>
+              <span className="log-event">
+                {event.event.replace(/_/g, ' ')}
+              </span>
+              <span className="log-message">
+                {formatEventMessage(event)}
+              </span>
+            </div>
+          ))
+        )}
+        <div ref={eventsEndRef} />
+      </div>
+    </div>
+  );
+};
+
+export default AutonomousResearchLogs;
+

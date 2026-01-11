@@ -1,0 +1,389 @@
+.workflow-panel {
+  position: fixed;
+  right: 0;
+  top: 0;
+  height: 100vh;
+  width: 320px;
+  background: #1a1a1a;
+  border-left: 1px solid #333;
+  display: flex;
+  flex-direction: column;
+  z-index: 1000;
+  transition: width 0.15s ease;
+}
+
+.workflow-panel.collapsed {
+  width: 50px;
+}
+
+.workflow-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem;
+  border-bottom: 1px solid #333;
+  background: #0f0f0f;
+}
+
+.workflow-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #4CAF50;
+}
+
+.collapse-btn {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+}
+
+.collapse-btn:hover {
+  color: #fff;
+}
+
+.workflow-panel.collapsed .workflow-header h3 {
+  display: none;
+}
+
+.workflow-mode {
+  padding: 0.75rem 1rem;
+  background: #242424;
+  border-bottom: 1px solid #333;
+  font-size: 0.9rem;
+  color: #aaa;
+}
+
+.mode-badge {
+  color: #4CAF50;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+/* Boost Controls */
+.boost-controls {
+  padding: 0.75rem 1rem;
+  background: #1f1f1f;
+  border-bottom: 1px solid #333;
+}
+
+.boost-section {
+  margin-bottom: 0.75rem;
+}
+
+.boost-section:last-child {
+  margin-bottom: 0;
+}
+
+.boost-label {
+  display: block;
+  font-size: 0.75rem;
+  color: #888;
+  margin-bottom: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.boost-next-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.boost-next-input {
+  width: 60px;
+  padding: 0.4rem 0.5rem;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 0.9rem;
+}
+
+.boost-next-input:focus {
+  outline: none;
+  border-color: #ffd700;
+}
+
+.boost-next-input::placeholder {
+  color: #666;
+}
+
+.boost-apply-btn {
+  padding: 0.4rem 0.75rem;
+  background: #ffd700;
+  border: none;
+  border-radius: 4px;
+  color: #000;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.boost-apply-btn:hover:not(:disabled) {
+  background: #ffed4e;
+}
+
+.boost-apply-btn:disabled {
+  background: #555;
+  color: #888;
+  cursor: not-allowed;
+}
+
+.boost-count-badge {
+  background: #ffd700;
+  color: #000;
+  padding: 0.25rem 0.5rem;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.boost-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.category-btn {
+  padding: 0.3rem 0.6rem;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #aaa;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.category-btn:hover {
+  background: #333;
+  border-color: #555;
+  color: #fff;
+}
+
+.category-btn.active {
+  background: linear-gradient(135deg, #ffd700 0%, #ffed4e 100%);
+  border-color: #ffd700;
+  color: #000;
+  font-weight: 600;
+}
+
+.boost-disabled-notice {
+  padding: 0.75rem 1rem;
+  background: #1f1f1f;
+  border-bottom: 1px solid #333;
+  font-size: 0.8rem;
+  color: #666;
+  text-align: center;
+  font-style: italic;
+}
+
+.workflow-tasks {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem;
+}
+
+.no-tasks {
+  text-align: center;
+  padding: 2rem 1rem;
+  color: #666;
+  font-style: italic;
+}
+
+.task-card {
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  gap: 0.75rem;
+  align-items: center;
+  transition: all 0.2s ease;
+}
+
+.task-card:hover:not(.completed) {
+  background: #333;
+  border-color: #555;
+  transform: translateX(-2px);
+}
+
+.task-card.boosted {
+  background: linear-gradient(135deg, #ffd700 0%, #ffed4e 100%);
+  border-color: #ffd700;
+  color: #000;
+}
+
+.task-card.boosted .task-role,
+.task-card.boosted .task-mode,
+.task-card.boosted .task-provider {
+  color: #000;
+}
+
+.task-card.active {
+  background: #2563eb;
+  border-color: #3b82f6;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+.task-card.completed {
+  background: #2d5f2d;
+  border-color: #4CAF50;
+  opacity: 0.7;
+}
+
+.task-number {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: #888;
+  min-width: 30px;
+}
+
+.task-card.boosted .task-number {
+  color: #000;
+}
+
+.task-card.active .task-number,
+.task-card.completed .task-number {
+  color: #fff;
+}
+
+.task-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.task-role {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #fff;
+}
+
+.task-mode {
+  font-size: 0.75rem;
+  color: #aaa;
+}
+
+.task-card.boosted .task-mode {
+  color: #333;
+}
+
+.task-badges {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.boost-icon {
+  font-size: 1.2rem;
+}
+
+.completed-icon {
+  color: #4CAF50;
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.active-icon {
+  color: #fff;
+  font-size: 1.2rem;
+  animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.task-provider {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #666;
+  background: #1a1a1a;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}
+
+.task-card.boosted .task-provider {
+  background: rgba(0, 0, 0, 0.2);
+  color: #000;
+}
+
+.workflow-legend {
+  padding: 0.75rem 1rem;
+  border-top: 1px solid #333;
+  background: #0f0f0f;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #aaa;
+}
+
+.legend-color {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  border: 1px solid #444;
+}
+
+.legend-color.default {
+  background: #2a2a2a;
+}
+
+.legend-color.boosted {
+  background: linear-gradient(135deg, #ffd700 0%, #ffed4e 100%);
+}
+
+.legend-color.active {
+  background: #2563eb;
+}
+
+.legend-color.completed {
+  background: #2d5f2d;
+}
+
+/* Scrollbar styling */
+.workflow-tasks::-webkit-scrollbar {
+  width: 6px;
+}
+
+.workflow-tasks::-webkit-scrollbar-track {
+  background: #1a1a1a;
+}
+
+.workflow-tasks::-webkit-scrollbar-thumb {
+  background: #444;
+  border-radius: 3px;
+}
+
+.workflow-tasks::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+

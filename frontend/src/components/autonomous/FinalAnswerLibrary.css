@@ -1,0 +1,531 @@
+/* FinalAnswerLibrary.css - Styling for the Final Answer Library component */
+
+.final-answer-library {
+  padding: 20px;
+  max-width: 1400px;
+  margin: 0 auto;
+  min-height: calc(100vh - 100px);
+}
+
+/* ============================================================================
+   HEADER
+   ============================================================================ */
+
+.library-header {
+  margin-bottom: 30px;
+  text-align: center;
+}
+
+.library-header h2 {
+  color: #ffd700;
+  font-size: 2rem;
+  margin-bottom: 10px;
+}
+
+.library-header p {
+  color: #ccc;
+  font-size: 1rem;
+  margin-bottom: 15px;
+}
+
+.library-stats {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.stat-badge {
+  background: linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%);
+  padding: 8px 16px;
+  border-radius: 6px;
+  color: #ffd700;
+  font-weight: 600;
+  font-size: 0.9rem;
+  border: 1px solid #444;
+}
+
+/* ============================================================================
+   CONTROLS
+   ============================================================================ */
+
+.library-controls {
+  display: flex;
+  gap: 15px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.search-input {
+  flex: 1;
+  min-width: 250px;
+  padding: 12px 16px;
+  background: #2a2a2a;
+  border: 2px solid #444;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 0.95rem;
+  transition: border-color 0.3s;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: #ffd700;
+}
+
+.search-input::placeholder {
+  color: #888;
+}
+
+.filter-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.filter-buttons button {
+  padding: 10px 20px;
+  background: #2a2a2a;
+  border: 2px solid #444;
+  border-radius: 6px;
+  color: #ccc;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.filter-buttons button:hover {
+  background: #3a3a3a;
+  border-color: #666;
+}
+
+.filter-buttons button.active {
+  background: linear-gradient(135deg, #ffd700 0%, #ffed4e 100%);
+  border-color: #ffd700;
+  color: #000;
+  font-weight: 600;
+}
+
+/* ============================================================================
+   ANSWER LIST
+   ============================================================================ */
+
+.answer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.answer-card {
+  background: #2a2a2a;
+  border: 2px solid #444;
+  border-radius: 10px;
+  overflow: hidden;
+  transition: all 0.3s;
+}
+
+.answer-card:hover {
+  border-color: #ffd700;
+  box-shadow: 0 4px 12px rgba(255, 215, 0, 0.1);
+}
+
+.answer-card.expanded {
+  border-color: #ffd700;
+  box-shadow: 0 8px 20px rgba(255, 215, 0, 0.15);
+}
+
+/* ============================================================================
+   ANSWER HEADER
+   ============================================================================ */
+
+.answer-header {
+  padding: 20px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.answer-header:hover {
+  background: #333;
+}
+
+.answer-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.answer-title {
+  color: #ffd700;
+  font-size: 1.3rem;
+  margin: 0;
+  flex: 1;
+}
+
+.expand-button {
+  background: transparent;
+  border: none;
+  color: #ffd700;
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 5px 10px;
+  transition: transform 0.3s;
+}
+
+.expand-button:hover {
+  transform: scale(1.2);
+}
+
+.answer-metadata {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.format-badge,
+.certainty-badge,
+.word-count,
+.chapter-count {
+  padding: 5px 12px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.format-badge {
+  background: #3a5a6e;
+  color: #fff;
+}
+
+.certainty-badge {
+  color: #fff;
+}
+
+.word-count,
+.chapter-count {
+  background: #444;
+  color: #ccc;
+}
+
+.answer-prompt {
+  color: #ccc;
+  font-size: 0.95rem;
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+
+.answer-prompt strong {
+  color: #ffd700;
+}
+
+.answer-footer-info {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 0.85rem;
+  color: #888;
+}
+
+.completion-date,
+.session-id {
+  font-style: italic;
+}
+
+/* Quick Download Buttons */
+.quick-download-buttons {
+  display: flex;
+  gap: 10px;
+  margin-top: 15px;
+  padding-top: 12px;
+  border-top: 1px solid #444;
+}
+
+.quick-download-raw,
+.quick-download-pdf {
+  flex: 1;
+  padding: 10px 16px;
+  border: 2px solid #444;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.quick-download-raw {
+  background: linear-gradient(135deg, #2d5f2d 0%, #3a7a3a 100%);
+  color: #fff;
+}
+
+.quick-download-raw:hover {
+  background: linear-gradient(135deg, #3a7a3a 0%, #4a8a4a 100%);
+  border-color: #4a8a4a;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+.quick-download-pdf {
+  background: linear-gradient(135deg, #6e3a2d 0%, #8a4a3a 100%);
+  color: #fff;
+}
+
+.quick-download-pdf:hover {
+  background: linear-gradient(135deg, #8a4a3a 0%, #aa5a4a 100%);
+  border-color: #aa5a4a;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+.quick-download-pdf:disabled {
+  background: #555;
+  border-color: #555;
+  color: #888;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ============================================================================
+   EXPANDED CONTENT
+   ============================================================================ */
+
+.answer-content {
+  border-top: 2px solid #444;
+  padding: 20px;
+  background: #1a1a1a;
+}
+
+.content-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 15px;
+}
+
+.download-button {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #2d5f2d 0%, #3a7a3a 100%);
+  border: 2px solid #3a7a3a;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.download-button:hover {
+  background: linear-gradient(135deg, #3a7a3a 0%, #4a8a4a 100%);
+  border-color: #4a8a4a;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+.chapter-list {
+  margin-bottom: 20px;
+  padding: 15px;
+  background: #2a2a2a;
+  border-radius: 6px;
+}
+
+.chapter-list h4 {
+  color: #ffd700;
+  margin-bottom: 10px;
+}
+
+.chapter-list ol {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.chapter-list li {
+  color: #ccc;
+  margin-bottom: 8px;
+  line-height: 1.6;
+}
+
+.chapter-list .chapter-type {
+  color: #888;
+  font-size: 0.85rem;
+  margin-left: 8px;
+}
+
+.full-content {
+  background: #000;
+  border: 1px solid #444;
+  border-radius: 6px;
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.full-content pre {
+  margin: 0;
+  padding: 20px;
+  color: #ccc;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+/* ============================================================================
+   EMPTY STATE
+   ============================================================================ */
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: #888;
+}
+
+.empty-icon {
+  font-size: 4rem;
+  display: block;
+  margin-bottom: 20px;
+}
+
+.empty-state h3 {
+  color: #ccc;
+  font-size: 1.5rem;
+  margin-bottom: 10px;
+}
+
+.empty-state p {
+  font-size: 1rem;
+}
+
+/* ============================================================================
+   LOADING / ERROR
+   ============================================================================ */
+
+.loading-spinner {
+  text-align: center;
+  padding: 40px;
+  color: #ffd700;
+  font-size: 1.2rem;
+  animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.error-message {
+  text-align: center;
+  padding: 40px;
+  background: #3a2a2a;
+  border: 2px solid #6e2d2d;
+  border-radius: 10px;
+  margin: 20px 0;
+}
+
+.error-message span {
+  display: block;
+  font-size: 3rem;
+  margin-bottom: 15px;
+}
+
+.error-message p {
+  color: #ff6b6b;
+  font-size: 1rem;
+  margin-bottom: 15px;
+}
+
+.retry-button {
+  padding: 10px 20px;
+  background: #6e2d2d;
+  border: 2px solid #8e3d3d;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.retry-button:hover {
+  background: #8e3d3d;
+  border-color: #ae4d4d;
+}
+
+/* ============================================================================
+   FOOTER
+   ============================================================================ */
+
+.library-footer {
+  margin-top: 30px;
+  text-align: center;
+}
+
+.refresh-button {
+  padding: 12px 24px;
+  background: linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%);
+  border: 2px solid #ffd700;
+  border-radius: 8px;
+  color: #ffd700;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.refresh-button:hover {
+  background: linear-gradient(135deg, #3a3a3a 0%, #4a4a4a 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(255, 215, 0, 0.2);
+}
+
+/* ============================================================================
+   SCROLLBAR STYLING
+   ============================================================================ */
+
+.full-content::-webkit-scrollbar {
+  width: 10px;
+}
+
+.full-content::-webkit-scrollbar-track {
+  background: #1a1a1a;
+}
+
+.full-content::-webkit-scrollbar-thumb {
+  background: #444;
+  border-radius: 5px;
+}
+
+.full-content::-webkit-scrollbar-thumb:hover {
+  background: #666;
+}
+
+/* ============================================================================
+   RESPONSIVE
+   ============================================================================ */
+
+@media (max-width: 768px) {
+  .library-controls {
+    flex-direction: column;
+  }
+
+  .search-input {
+    width: 100%;
+  }
+
+  .filter-buttons {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .answer-title {
+    font-size: 1.1rem;
+  }
+
+  .full-content {
+    max-height: 400px;
+  }
+}
+
+
+
+
+
+

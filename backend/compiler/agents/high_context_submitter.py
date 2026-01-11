@@ -1,0 +1,927 @@
+"""
+High-context submitter agent for compiler.
+Handles 3 modes: construction, outline update, and review.
+"""
+import asyncio
+import json
+import logging
+import uuid
+from datetime import datetime
+from typing import Optional, Dict, Any, List, Callable
+
+from backend.shared.api_client_manager import api_client_manager
+from backend.shared.models import CompilerSubmission
+from backend.shared.config import system_config, rag_config
+from backend.shared.utils import count_tokens
+from backend.shared.json_parser import parse_json
+from backend.aggregator.validation.json_validator import json_validator
+from backend.compiler.prompts.outline_prompts import (
+    build_outline_create_prompt,
+    build_outline_update_prompt
+)
+from backend.compiler.prompts.construction_prompts import (
+    build_construction_prompt,
+    build_body_construction_prompt,
+    build_conclusion_construction_prompt,
+    build_introduction_construction_prompt,
+    build_abstract_construction_prompt
+)
+from backend.compiler.prompts.review_prompts import build_review_prompt
+from backend.compiler.memory.outline_memory import outline_memory
+from backend.compiler.memory.paper_memory import (
+    paper_memory,
+    PAPER_ANCHOR,
+    ABSTRACT_PLACEHOLDER,
+    INTRO_PLACEHOLDER,
+    CONCLUSION_PLACEHOLDER
+)
+from backend.compiler.core.compiler_rag_manager import compiler_rag_manager
+
+logger = logging.getLogger(__name__)
+
+
+def _normalize_string_field(value) -> str:
+    """
+    Normalize string field from LLM response.
+    Some LLMs incorrectly return strings as lists.
+    
+    Args:
+        value: Raw value from JSON (could be str, list, or other)
+    
+    Returns:
+        Normalized string value
+    """
+    if isinstance(value, list):
+        # LLM returned list - join into single string
+        logger.warning(f"LLM returned field as list (length {len(value)}), converting to string")
+        return " ".join(str(item) for item in value if item)
+    elif isinstance(value, str):
+        return value
+    elif value is None:
+        return ""
+    else:
+        # Fallback: convert to string
+        logger.warning(f"LLM returned field as {type(value)}, converting to string")
+        return str(value)
+
+
+def _strip_paper_markers_for_llm(paper_content: str) -> str:
+    """
+    Remove only the end-of-paper anchor from paper before sending to LLM.
+    
+    The section placeholders are KEPT so the LLM can see and use them
+    as exact old_string values for replacement operations.
+    
+    IMPORTANT: We do NOT replace placeholders with different text anymore.
+    The prompts tell the LLM to use the exact placeholder text as old_string.
+    If we replaced them with different labels, the LLM would generate
+    old_string values that don't match the actual paper file.
+    
+    Args:
+        paper_content: Full paper content with markers
+    
+    Returns:
+        Paper content with end-of-paper anchor removed but placeholders intact
+    """
+    # Remove only the paper anchor marker (end-of-paper boundary)
+    # Keep placeholders intact so LLM can use them as exact old_string values
+    result = paper_content.replace(PAPER_ANCHOR, "").strip()
+    
+    return result
+
+
+class HighContextSubmitter:
+    """
+    High-context, low-parameter submitter for compiler.
+    
+    Modes:
+    - outline_create: Generate initial outline
+    - outline_update: Review and potentially update outline
+    - construction: Write next portion of paper
+    - review: Review paper for errors/improvements (no aggregator DB)
+    """
+    
+    def __init__(self, model_name: str, user_prompt: str, websocket_broadcaster: Optional[Callable] = None):
+        self.model_name = model_name
+        self.user_prompt = user_prompt
+        self.websocket_broadcaster = websocket_broadcaster
+        self._initialized = False
+        
+        # Calculate context budget (user-configurable, default 131072)
+        self.context_window = system_config.compiler_high_context_context_window
+        self.max_output_tokens = system_config.compiler_high_context_max_output_tokens
+        self.available_input_tokens = rag_config.get_available_input_tokens(self.context_window, self.max_output_tokens)
+        
+        # Task tracking for workflow panel and boost integration
+        self.task_sequence: int = 0
+        self.role_id = "compiler_high_context"
+        self.task_tracking_callback: Optional[Callable] = None
+    
+    def set_task_tracking_callback(self, callback: Callable) -> None:
+        """Set callback for task tracking (workflow panel integration)."""
+        self.task_tracking_callback = callback
+    
+    def get_current_task_id(self) -> str:
+        """Get the task ID for the current/next API call."""
+        return f"comp_hc_{self.task_sequence:03d}"
+    
+    async def initialize(self) -> None:
+        """Initialize submitter."""
+        if self._initialized:
+            return
+        
+        # Re-read context window from config (in case it was updated)
+        self.context_window = system_config.compiler_high_context_context_window
+        self.max_output_tokens = system_config.compiler_high_context_max_output_tokens
+        self.available_input_tokens = rag_config.get_available_input_tokens(self.context_window, self.max_output_tokens)
+        
+        self._initialized = True
+        logger.info(f"High-context submitter initialized with model: {self.model_name}")
+        logger.info(f"Context budget: {self.available_input_tokens} tokens (window: {self.context_window})")
+    
+    async def submit_outline_create(self) -> CompilerSubmission:
+        """
+        Create initial outline submission.
+        
+        Returns:
+            CompilerSubmission for outline creation
+        """
+        logger.info("Starting outline creation submission generation...")
+        
+        try:
+            # Retrieve aggregator database evidence
+            logger.info("Retrieving aggregator database evidence via RAG...")
+            context_pack = await compiler_rag_manager.retrieve_for_mode(
+                query=self.user_prompt,
+                mode="outline_create"
+            )
+            logger.info(f"RAG retrieval complete: {len(context_pack.text)} chars retrieved")
+            
+            # Build prompt
+            logger.info("Building outline creation prompt...")
+            prompt = await build_outline_create_prompt(
+                user_prompt=self.user_prompt,
+                rag_evidence=context_pack.text
+            )
+            logger.info(f"Prompt built: {len(prompt)} chars")
+            
+            # Validate prompt size
+            actual_prompt_tokens = count_tokens(prompt)
+            max_allowed_tokens = rag_config.get_available_input_tokens(system_config.compiler_high_context_context_window, system_config.compiler_high_context_max_output_tokens)
+            
+            if actual_prompt_tokens > max_allowed_tokens:
+                logger.error(
+                    f"outline_create: Assembled prompt ({actual_prompt_tokens} tokens) exceeds context window "
+                    f"({max_allowed_tokens} tokens after safety margin). This indicates a context allocation bug."
+                )
+                raise ValueError(f"Prompt too large: {actual_prompt_tokens} tokens > {max_allowed_tokens} max")
+            
+            logger.debug(f"outline_create prompt: {actual_prompt_tokens} tokens (max: {max_allowed_tokens})")
+            
+            # Generate task ID for tracking
+            task_id = self.get_current_task_id()
+            self.task_sequence += 1
+            
+            # Notify task started (for workflow panel)
+            if self.task_tracking_callback:
+                self.task_tracking_callback("started", task_id)
+            
+            # Get completion via api_client_manager (handles boost and fallback)
+            logger.info(f"Generating LLM completion via api_client_manager (task_id={task_id})...")
+            response = await api_client_manager.generate_completion(
+                task_id=task_id,
+                role_id=self.role_id,
+                model=self.model_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,  # Deterministic generation - evolving context provides diversity
+                max_tokens=system_config.compiler_high_context_max_output_tokens  # User-configurable (outline creation, update, construction, review)
+            )
+            
+            # Check for empty response
+            if not response.get("choices") or not response["choices"][0].get("message"):
+                logger.error("outline_create: LLM returned empty response structure")
+                raise ValueError("LLM returned empty response")
+            
+            # Extract content from either 'content' or 'reasoning' field
+            # Some reasoning models (e.g., DeepSeek R1, certain GPT variants) output JSON in 'reasoning' field
+            message = response["choices"][0]["message"]
+            llm_output = message.get("content", "") or message.get("reasoning", "")
+            logger.info(f"LLM completion received: {len(llm_output)} chars")
+            
+            # Check for empty content
+            if not llm_output or len(llm_output.strip()) == 0:
+                logger.error("outline_create: LLM returned empty content in both 'content' and 'reasoning' fields")
+                raise ValueError("LLM returned empty content")
+            
+            # Parse response with retry
+            logger.info("Parsing JSON response...")
+            data = await self._parse_json_response_with_retry(llm_output, "outline_create", prompt)
+            
+            if not data:
+                raise ValueError("Failed to parse JSON response from outline creation")
+            
+            logger.info("JSON parsed successfully")
+            
+            # Handle case where model returns array instead of single object
+            if isinstance(data, list):
+                if len(data) == 0:
+                    raise ValueError("Outline creation returned empty array")
+                logger.warning(f"Outline creation returned array of {len(data)} objects, using first object only")
+                data = data[0]
+            
+            # Validate required fields for outline_create (iterative refinement)
+            if "outline_complete" not in data:
+                logger.error("outline_create: Missing required 'outline_complete' field in JSON")
+                raise ValueError("Missing 'outline_complete' field - this field is required for outline creation")
+            
+            outline_complete = data.get("outline_complete")
+            if not isinstance(outline_complete, bool):
+                logger.error(f"outline_create: 'outline_complete' must be boolean, got {type(outline_complete)}")
+                raise ValueError(f"Invalid 'outline_complete' field type: {type(outline_complete)}")
+            
+            # Create submission
+            # Content is already properly decoded by json.loads() - no additional processing needed
+            content = data.get("content", "")
+            
+            submission = CompilerSubmission(
+                submission_id=str(uuid.uuid4()),
+                mode="outline_create",
+                content=content,
+                operation="full_content",  # Outline create uses full replacement
+                old_string="",
+                new_string=content,  # The complete outline
+                reasoning=data.get("reasoning", ""),
+                outline_complete=outline_complete,  # NEW: For iterative refinement
+                metadata={"coverage": context_pack.coverage, "answerability": context_pack.answerability}
+            )
+            
+            # Notify task completed successfully
+            if self.task_tracking_callback:
+                self.task_tracking_callback("completed", task_id)
+            
+            logger.info(f"Outline creation submission generated: {submission.submission_id}, outline_complete={outline_complete}")
+            return submission
+            
+        except Exception as e:
+            logger.error(f"Failed to generate outline creation submission: {e}", exc_info=True)
+            # Notify task completed (failed but still completed)
+            if self.task_tracking_callback and 'task_id' in dir():
+                self.task_tracking_callback("completed", task_id)
+            raise
+    
+    async def submit_outline_update(self) -> Optional[CompilerSubmission]:
+        """
+        Submit outline update (or no-op if update not needed).
+        
+        Returns:
+            CompilerSubmission if update needed, None otherwise
+        """
+        logger.info("Starting outline update review...")
+        
+        try:
+            # Get current outline and paper
+            logger.info("Loading outline and paper state...")
+            current_outline = await outline_memory.get_outline()
+            current_paper = await paper_memory.get_paper()
+            logger.info(f"State loaded: outline={len(current_outline)} chars, paper={len(current_paper)} chars")
+            
+            # Strip structural markers from paper for LLM (prevents anchor text mismatch)
+            paper_for_llm = _strip_paper_markers_for_llm(current_paper)
+            logger.info(f"Paper stripped: {len(current_paper)} chars → {len(paper_for_llm)} chars (markers removed)")
+            
+            # Retrieve aggregator database evidence
+            logger.info("Retrieving aggregator database evidence via RAG...")
+            # Use just the user prompt - the outline is direct-injected anyway
+            # Truncating to 500 chars loses important context
+            context_pack = await compiler_rag_manager.retrieve_for_mode(
+                query=self.user_prompt,
+                mode="outline_update"
+            )
+            logger.info(f"RAG retrieval complete: {len(context_pack.text)} chars retrieved")
+            
+            # Build prompt
+            logger.info("Building outline update prompt...")
+            prompt = await build_outline_update_prompt(
+                user_prompt=self.user_prompt,
+                current_outline=current_outline,
+                current_paper=paper_for_llm,
+                rag_evidence=context_pack.text
+            )
+            logger.info(f"Prompt built: {len(prompt)} chars")
+            
+            # Validate prompt size
+            actual_prompt_tokens = count_tokens(prompt)
+            max_allowed_tokens = rag_config.get_available_input_tokens(system_config.compiler_high_context_context_window, system_config.compiler_high_context_max_output_tokens)
+            
+            if actual_prompt_tokens > max_allowed_tokens:
+                logger.error(
+                    f"outline_update: Assembled prompt ({actual_prompt_tokens} tokens) exceeds context window "
+                    f"({max_allowed_tokens} tokens after safety margin). This indicates a context allocation bug."
+                )
+                raise ValueError(f"Prompt too large: {actual_prompt_tokens} tokens > {max_allowed_tokens} max")
+            
+            logger.debug(f"outline_update prompt: {actual_prompt_tokens} tokens (max: {max_allowed_tokens})")
+            
+            # Generate task ID for tracking
+            task_id = self.get_current_task_id()
+            self.task_sequence += 1
+            
+            # Notify task started (for workflow panel)
+            if self.task_tracking_callback:
+                self.task_tracking_callback("started", task_id)
+            
+            # Get completion via api_client_manager (handles boost and fallback)
+            logger.info(f"Generating LLM completion via api_client_manager (task_id={task_id})...")
+            response = await api_client_manager.generate_completion(
+                task_id=task_id,
+                role_id=self.role_id,
+                model=self.model_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,  # Deterministic generation - evolving context provides diversity
+                max_tokens=system_config.compiler_high_context_max_output_tokens  # User-configurable (outline creation, update, construction, review)
+            )
+            
+            # Check for empty response
+            if not response.get("choices") or not response["choices"][0].get("message"):
+                logger.error("outline_update: LLM returned empty response structure")
+                raise ValueError("LLM returned empty response")
+            
+            # Extract content from either 'content' or 'reasoning' field
+            # Some reasoning models (e.g., DeepSeek R1, certain GPT variants) output JSON in 'reasoning' field
+            message = response["choices"][0]["message"]
+            llm_output = message.get("content", "") or message.get("reasoning", "")
+            logger.info(f"LLM completion received: {len(llm_output)} chars")
+            
+            # Check for empty content
+            if not llm_output or len(llm_output.strip()) == 0:
+                logger.error("outline_update: LLM returned empty content in both 'content' and 'reasoning' fields")
+                raise ValueError("LLM returned empty content")
+            
+            # Parse response with retry
+            logger.info("Parsing JSON response...")
+            data = await self._parse_json_response_with_retry(llm_output, "outline_update", prompt)
+            
+            if not data:
+                raise ValueError("Failed to parse JSON response from outline update")
+            
+            logger.info("JSON parsed successfully")
+            
+            # Handle case where model returns array instead of single object
+            if isinstance(data, list):
+                if len(data) == 0:
+                    logger.warning("Outline update returned empty array, treating as no update needed")
+                    return None
+                logger.warning(f"Outline update returned array of {len(data)} objects, using first object only")
+                data = data[0]
+            
+            # Check if update needed
+            needs_update = data.get("needs_update", False)
+            
+            if not needs_update:
+                # Notify task completed even when no update needed
+                if self.task_tracking_callback:
+                    self.task_tracking_callback("completed", task_id)
+                logger.info("Outline update not needed")
+                return None
+            
+            # Create submission
+            # Content is already properly decoded by json.loads() - no additional processing needed
+            content = data.get("content", "")
+            
+            submission = CompilerSubmission(
+                submission_id=str(uuid.uuid4()),
+                mode="outline_update",
+                content=content,
+                operation=data.get("operation", "replace"),
+                old_string=_normalize_string_field(data.get("old_string", "")),
+                new_string=_normalize_string_field(data.get("new_string", "")),
+                reasoning=data.get("reasoning", ""),
+                metadata={}
+            )
+            
+            # Notify task completed successfully
+            if self.task_tracking_callback:
+                self.task_tracking_callback("completed", task_id)
+            
+            logger.info(f"Outline update submission generated: {submission.submission_id}")
+            return submission
+            
+        except Exception as e:
+            logger.error(f"Failed to generate outline update submission: {e}", exc_info=True)
+            # Notify task completed (failed but still completed)
+            if self.task_tracking_callback and 'task_id' in dir():
+                self.task_tracking_callback("completed", task_id)
+            raise
+    
+    async def submit_construction(
+        self, 
+        is_first_portion: bool = False, 
+        section_phase: Optional[str] = None,
+        rejection_feedback: Optional[str] = None,
+        critique_feedback: Optional[str] = None,
+        pre_critique_paper: Optional[str] = None
+    ) -> Optional[CompilerSubmission]:
+        """
+        Submit next paper construction portion.
+        
+        Args:
+            is_first_portion: Whether this is the first portion of the paper
+            section_phase: Phase constraint for construction ("body", "conclusion", "introduction", "abstract")
+                          When provided, uses phase-specific prompts with explicit section_complete feedback.
+            rejection_feedback: Feedback from a previous rejection to guide the model (e.g., "Introduction not found in document")
+            critique_feedback: Accepted critique feedback from peer review (for body rewrites only)
+            pre_critique_paper: Paper state before critique phase (for body rewrites - shows what failed)
+        
+        Returns:
+            CompilerSubmission for construction
+        """
+        phase_info = f", phase={section_phase}" if section_phase else ""
+        feedback_info = f", retry with feedback" if rejection_feedback else ""
+        critique_info = f", rewrite with critique" if critique_feedback else ""
+        logger.info(f"Starting construction submission generation (first={is_first_portion}{phase_info}{feedback_info}{critique_info})")
+        
+        try:
+            # Get current outline and paper
+            logger.info("Loading outline and paper state...")
+            current_outline = await outline_memory.get_outline()
+            current_paper = await paper_memory.get_paper()
+            logger.info(f"State loaded: outline={len(current_outline)} chars, paper={len(current_paper)} chars")
+            
+            # Strip structural markers from paper for LLM (prevents anchor text mismatch)
+            paper_for_llm = _strip_paper_markers_for_llm(current_paper)
+            logger.info(f"Paper stripped: {len(current_paper)} chars → {len(paper_for_llm)} chars (markers removed)")
+            
+            # Retrieve aggregator database evidence
+            logger.info("Retrieving aggregator database evidence via RAG...")
+            query = self.user_prompt
+            if not is_first_portion and paper_for_llm:
+                # Use last part of paper to guide next section
+                query += " " + paper_for_llm[-500:]
+            
+            context_pack = await compiler_rag_manager.retrieve_for_mode(
+                query=query,
+                mode="construction"
+            )
+            logger.info(f"RAG retrieval complete: {len(context_pack.text)} chars retrieved")
+            
+            # Build prompt based on section phase (uses phase-specific prompts for explicit completion tracking)
+            logger.info(f"Building construction prompt for phase: {section_phase or 'generic'}...")
+            
+            if section_phase == "body":
+                prompt = await build_body_construction_prompt(
+                    user_prompt=self.user_prompt,
+                    current_outline=current_outline,
+                    current_paper=paper_for_llm,
+                    rag_evidence=context_pack.text,
+                    is_first_portion=is_first_portion,
+                    rejection_feedback=rejection_feedback,
+                    critique_feedback=critique_feedback,
+                    pre_critique_paper=pre_critique_paper
+                )
+            elif section_phase == "conclusion":
+                prompt = await build_conclusion_construction_prompt(
+                    user_prompt=self.user_prompt,
+                    current_outline=current_outline,
+                    current_paper=paper_for_llm,
+                    rag_evidence=context_pack.text,
+                    rejection_feedback=rejection_feedback
+                )
+            elif section_phase == "introduction":
+                prompt = await build_introduction_construction_prompt(
+                    user_prompt=self.user_prompt,
+                    current_outline=current_outline,
+                    current_paper=paper_for_llm,
+                    rag_evidence=context_pack.text,
+                    rejection_feedback=rejection_feedback
+                )
+            elif section_phase == "abstract":
+                prompt = await build_abstract_construction_prompt(
+                    user_prompt=self.user_prompt,
+                    current_outline=current_outline,
+                    current_paper=paper_for_llm,
+                    rag_evidence=context_pack.text,
+                    rejection_feedback=rejection_feedback
+                )
+            else:
+                # Fallback to generic prompt for backward compatibility
+                prompt = await build_construction_prompt(
+                    user_prompt=self.user_prompt,
+                    current_outline=current_outline,
+                    current_paper=paper_for_llm,
+                    rag_evidence=context_pack.text,
+                    is_first_portion=is_first_portion,
+                    section_phase=section_phase,
+                    rejection_feedback=rejection_feedback,
+                    critique_feedback=critique_feedback,
+                    pre_critique_paper=pre_critique_paper
+                )
+            logger.info(f"Prompt built: {len(prompt)} chars")
+            
+            # Validate prompt size
+            actual_prompt_tokens = count_tokens(prompt)
+            max_allowed_tokens = rag_config.get_available_input_tokens(system_config.compiler_high_context_context_window, system_config.compiler_high_context_max_output_tokens)
+            
+            if actual_prompt_tokens > max_allowed_tokens:
+                logger.error(
+                    f"construction: Assembled prompt ({actual_prompt_tokens} tokens) exceeds context window "
+                    f"({max_allowed_tokens} tokens after safety margin). This indicates a context allocation bug."
+                )
+                return None  # Return None to skip this submission
+            
+            logger.debug(f"construction prompt: {actual_prompt_tokens} tokens (max: {max_allowed_tokens})")
+            
+            # Generate task ID for tracking
+            task_id = self.get_current_task_id()
+            self.task_sequence += 1
+            
+            # Notify task started (for workflow panel)
+            if self.task_tracking_callback:
+                self.task_tracking_callback("started", task_id)
+            
+            # Get completion via api_client_manager (handles boost and fallback)
+            logger.info(f"Generating LLM completion via api_client_manager (task_id={task_id})...")
+            response = await api_client_manager.generate_completion(
+                task_id=task_id,
+                role_id=self.role_id,
+                model=self.model_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,  # Deterministic generation - evolving context provides diversity
+                max_tokens=system_config.compiler_high_context_max_output_tokens  # User-configurable (outline creation, update, construction, review)
+            )
+            
+            # Check for empty response
+            if not response.get("choices") or not response["choices"][0].get("message"):
+                logger.error("construction: LLM returned empty response structure")
+                # Notify task completed (failed but still completed)
+                if self.task_tracking_callback:
+                    self.task_tracking_callback("completed", task_id)
+                return None
+            
+            # Extract content from either 'content' or 'reasoning' field
+            # Some reasoning models (e.g., DeepSeek R1, certain GPT variants) output JSON in 'reasoning' field
+            message = response["choices"][0]["message"]
+            llm_output = message.get("content", "") or message.get("reasoning", "")
+            logger.info(f"LLM completion received: {len(llm_output)} chars")
+            
+            # Check for empty content
+            # Parse response with retry
+            logger.info("Parsing JSON response...")
+            data = await self._parse_json_response_with_retry(llm_output, "construction", prompt)
+            
+            if not data:
+                logger.error("construction: Failed to parse JSON response, returning None")
+                # Notify task completed (failed but still completed)
+                if self.task_tracking_callback:
+                    self.task_tracking_callback("completed", task_id)
+                return None
+            
+            logger.info("JSON parsed successfully")
+            
+            # Handle case where model returns array instead of single object
+            if isinstance(data, list):
+                if len(data) == 0:
+                    logger.warning("Construction returned empty array, returning None")
+                    # Notify task completed (failed but still completed)
+                    if self.task_tracking_callback:
+                        self.task_tracking_callback("completed", task_id)
+                    return None
+                logger.warning(f"Construction returned array of {len(data)} objects, using first object only")
+                data = data[0]
+            
+            # Check if construction needed
+            needs_construction = data.get("needs_construction", True)  # Default True for backward compat
+            
+            # Extract section_complete flag (new phase-based system)
+            section_complete = data.get("section_complete", False)
+            
+            if not needs_construction:
+                logger.info(f"Construction not needed - section_complete={section_complete}")
+                # Still return a submission to signal completion if section_complete is True
+                if section_complete:
+                    submission = CompilerSubmission(
+                        submission_id=str(uuid.uuid4()),
+                        mode="construction",
+                        content="",  # No content, just completion signal
+                        operation="full_content",  # No-op for completion signal
+                        old_string="",
+                        new_string="",
+                        reasoning=data.get("reasoning", "Section marked as complete"),
+                        section_complete=True,
+                        metadata={"coverage": context_pack.coverage, "is_first": is_first_portion, "phase": section_phase}
+                    )
+                    # Notify task completed successfully
+                    if self.task_tracking_callback:
+                        self.task_tracking_callback("completed", task_id)
+                    logger.info(f"Section completion signal generated: {submission.submission_id} (phase={section_phase})")
+                    return submission
+                # Notify task completed even when no construction needed
+                if self.task_tracking_callback:
+                    self.task_tracking_callback("completed", task_id)
+                return None
+            
+            # Validate content not empty when needs_construction=True
+            # The actual content is in "new_string" field, NOT "content"
+            new_string_content = _normalize_string_field(data.get("new_string", ""))
+            if not new_string_content or not new_string_content.strip():
+                logger.warning(f"Construction marked as needed but new_string is empty. Data keys: {list(data.keys())}")
+                # Notify task completed (failed but still completed)
+                if self.task_tracking_callback:
+                    self.task_tracking_callback("completed", task_id)
+                return None
+            
+            # Create submission with section_complete flag
+            submission = CompilerSubmission(
+                submission_id=str(uuid.uuid4()),
+                mode="construction",
+                content=new_string_content,  # Use new_string as the content
+                operation=data.get("operation", "full_content"),
+                old_string=_normalize_string_field(data.get("old_string", "")),
+                new_string=new_string_content,  # Already normalized above
+                reasoning=data.get("reasoning", ""),
+                section_complete=section_complete,
+                metadata={"coverage": context_pack.coverage, "is_first": is_first_portion, "phase": section_phase}
+            )
+            
+            # Notify task completed successfully
+            if self.task_tracking_callback:
+                self.task_tracking_callback("completed", task_id)
+            
+            logger.info(f"Construction submission generated: {submission.submission_id} (section_complete={section_complete})")
+            return submission
+            
+        except Exception as e:
+            logger.error(f"Failed to generate construction submission: {e}", exc_info=True)
+            # Notify task completed (failed but still completed)
+            if self.task_tracking_callback and 'task_id' in dir():
+                self.task_tracking_callback("completed", task_id)
+            return None
+    
+    async def submit_review(self) -> Optional[CompilerSubmission]:
+        """
+        Submit paper review (or no-op if no edit needed).
+        Note: Aggregator DB is NOT in context for this mode.
+        
+        Returns:
+            CompilerSubmission if edit needed, None otherwise
+        """
+        logger.info("Starting paper review for errors/improvements...")
+        
+        try:
+            # Get current outline and paper (NO aggregator DB context for this mode)
+            logger.info("Loading outline and paper state...")
+            current_outline = await outline_memory.get_outline()
+            current_paper = await paper_memory.get_paper()
+            logger.info(f"State loaded: outline={len(current_outline)} chars, paper={len(current_paper)} chars")
+            
+            # Strip structural markers from paper for LLM (prevents anchor text mismatch)
+            paper_for_llm = _strip_paper_markers_for_llm(current_paper)
+            logger.info(f"Paper stripped: {len(current_paper)} chars → {len(paper_for_llm)} chars (markers removed)")
+            
+            # Build prompt (no RAG, just direct outline + paper content)
+            # CRITICAL: Outline is ALWAYS fully injected per architectural rules
+            logger.info("Building review prompt (full outline + paper, no aggregator DB)...")
+            prompt = await build_review_prompt(
+                user_prompt=self.user_prompt,
+                current_outline=current_outline,  # ALWAYS fully injected
+                current_paper=paper_for_llm
+            )
+            logger.info(f"Prompt built: {len(prompt)} chars")
+            
+            # Validate prompt size
+            actual_prompt_tokens = count_tokens(prompt)
+            max_allowed_tokens = rag_config.get_available_input_tokens(system_config.compiler_high_context_context_window, system_config.compiler_high_context_max_output_tokens)
+            
+            if actual_prompt_tokens > max_allowed_tokens:
+                logger.error(
+                    f"review: Assembled prompt ({actual_prompt_tokens} tokens) exceeds context window "
+                    f"({max_allowed_tokens} tokens after safety margin). This indicates a context allocation bug."
+                )
+                return None  # Return None to skip this submission
+            
+            logger.debug(f"review prompt: {actual_prompt_tokens} tokens (max: {max_allowed_tokens})")
+            
+            # Generate task ID for tracking
+            task_id = self.get_current_task_id()
+            self.task_sequence += 1
+            
+            # Notify task started (for workflow panel)
+            if self.task_tracking_callback:
+                self.task_tracking_callback("started", task_id)
+            
+            # Get completion via api_client_manager (handles boost and fallback)
+            logger.info(f"Generating LLM completion via api_client_manager (task_id={task_id})...")
+            response = await api_client_manager.generate_completion(
+                task_id=task_id,
+                role_id=self.role_id,
+                model=self.model_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,  # Deterministic generation - evolving context provides diversity
+                max_tokens=system_config.compiler_high_context_max_output_tokens  # User-configurable (outline creation, update, construction, review)
+            )
+            # Extract content from either 'content' or 'reasoning' field
+            # Some reasoning models (e.g., DeepSeek R1, certain GPT variants) output JSON in 'reasoning' field
+            message = response["choices"][0]["message"]
+            llm_output = message.get("content", "") or message.get("reasoning", "")
+            logger.info(f"LLM completion received: {len(llm_output)} chars")
+            
+            # Parse response with retry
+            logger.info("Parsing JSON response...")
+            data = await self._parse_json_response_with_retry(llm_output, "review", prompt)
+            
+            if not data:
+                logger.warning("Review: JSON parse failed, treating as no edit needed")
+                # Notify task completed (failed but still completed)
+                if self.task_tracking_callback:
+                    self.task_tracking_callback("completed", task_id)
+                return None
+            
+            logger.info("JSON parsed successfully")
+            
+            # Handle case where model returns array instead of single object
+            if isinstance(data, list):
+                if len(data) == 0:
+                    logger.warning("Review returned empty array, treating as no edit needed")
+                    # Notify task completed (failed but still completed)
+                    if self.task_tracking_callback:
+                        self.task_tracking_callback("completed", task_id)
+                    return None
+                logger.warning(f"Review returned array of {len(data)} objects, using first object only")
+                data = data[0]
+            
+            # Check if edit needed
+            needs_edit = data.get("needs_edit", False)
+            
+            if not needs_edit:
+                # Notify task completed even when no edit needed
+                if self.task_tracking_callback:
+                    self.task_tracking_callback("completed", task_id)
+                logger.info("Paper review: no edit needed")
+                return None
+            
+            # Check if this is a miniscule edit
+            is_miniscule = "miniscule" in data.get("reasoning", "").lower() or "minor" in data.get("reasoning", "").lower()
+            
+            # Create submission
+            # Use new_string as content for logging
+            new_string_content = _normalize_string_field(data.get("new_string", ""))
+            
+            submission = CompilerSubmission(
+                submission_id=str(uuid.uuid4()),
+                mode="review",
+                content=new_string_content,  # Use new_string as the content
+                operation=data.get("operation", "replace"),
+                old_string=_normalize_string_field(data.get("old_string", "")),
+                new_string=new_string_content,  # Already normalized above
+                reasoning=data.get("reasoning", ""),
+                metadata={"is_miniscule": is_miniscule}
+            )
+            
+            # Notify task completed successfully
+            if self.task_tracking_callback:
+                self.task_tracking_callback("completed", task_id)
+            
+            logger.info(f"Review submission generated: {submission.submission_id} (miniscule={is_miniscule})")
+            return submission
+            
+        except Exception as e:
+            logger.error(f"Failed to generate review submission: {e}", exc_info=True)
+            # Notify task completed (failed but still completed)
+            if self.task_tracking_callback and 'task_id' in dir():
+                self.task_tracking_callback("completed", task_id)
+            return None  # Don't crash workflow on review failure
+    
+    async def _parse_json_response_with_retry(
+        self, 
+        response: str, 
+        mode: str,
+        original_prompt: str
+    ) -> Optional[dict]:
+        """
+        Parse JSON response with a single conversational retry on failure.
+        
+        Uses api_client_manager for retry calls to ensure boost/fallback work correctly.
+        Only ONE retry is attempted to prevent cascading failures when the coordinator
+        also has retry logic at the phase level.
+        
+        Args:
+            response: LLM response
+            mode: One of 'outline_create', 'outline_update', 'construction', 'review'
+            original_prompt: Original prompt sent to LLM (for retry context)
+        
+        Returns:
+            Parsed JSON dict or None if validation fails after retry
+        """
+        # First attempt: try to parse JSON directly
+        try:
+            parsed = parse_json(response)
+            return parsed
+        except Exception as parse_error:
+            error = str(parse_error)
+            logger.info(f"Compiler high-context submitter ({mode}): Initial JSON parse failed, attempting single retry")
+            logger.debug(f"Parse error: {error}")
+        
+        # Build mode-specific retry prompt
+        retry_prompt = self._build_retry_prompt(mode, error)
+        
+        # Single conversational retry using api_client_manager (supports boost/fallback)
+        try:
+            # Generate a retry task ID (append _retry to distinguish from original)
+            retry_task_id = f"{self.get_current_task_id()}_retry"
+            
+            retry_response = await api_client_manager.generate_completion(
+                task_id=retry_task_id,
+                role_id=self.role_id,
+                model=self.model_name,
+                messages=[
+                    {"role": "user", "content": original_prompt},
+                    {"role": "assistant", "content": response},
+                    {"role": "user", "content": retry_prompt}
+                ],
+                temperature=0.0,  # Deterministic JSON formatting
+                max_tokens=self.max_output_tokens
+            )
+            
+            if retry_response.get("choices"):
+                message = retry_response["choices"][0]["message"]
+                retry_output = message.get("content", "") or message.get("reasoning", "")
+                
+                try:
+                    parsed = parse_json(retry_output)
+                    logger.info(f"Compiler high-context submitter ({mode}): Retry succeeded!")
+                    return parsed
+                except Exception as retry_parse_error:
+                    logger.warning(f"Compiler high-context submitter ({mode}): Retry parse failed - {retry_parse_error}")
+            else:
+                logger.warning(f"Compiler high-context submitter ({mode}): Retry returned empty response")
+                
+        except Exception as e:
+            logger.error(f"Compiler high-context submitter ({mode}): Retry request failed - {e}")
+        
+        # Retry failed - return None and let coordinator handle it
+        logger.error(f"Compiler high-context submitter ({mode}): JSON validation failed after retry: {error}")
+        return None
+    
+    def _build_retry_prompt(self, mode: str, error: str) -> str:
+        """Build mode-specific retry prompt for JSON errors."""
+        base_instructions = (
+            f"Your previous response could not be parsed as valid JSON.\n\n"
+            f"PARSE ERROR: {error}\n\n"
+            "JSON ESCAPING RULES FOR LaTeX:\n"
+            "LaTeX notation IS ALLOWED - but you must escape it properly in JSON:\n"
+            "1. Every backslash in your content needs ONE escape in JSON\n"
+            "   - To write \\mathbb{Z} in content, write: \"\\\\mathbb{Z}\" in JSON\n"
+            "   - To write \\( and \\), write: \"\\\\(\" and \"\\\\)\" in JSON\n"
+            "2. Do NOT double-escape: \\\\\\\\mathbb is WRONG, \\\\mathbb is CORRECT\n"
+            "3. For old_string: copy text EXACTLY from the document, just escape backslashes\n"
+            "4. Escape quotes inside strings: use \\\" for literal quotes\n"
+            "5. Avoid malformed unicode escapes (must be exactly \\uXXXX with 4 hex digits)\n\n"
+        )
+        
+        # Mode-specific schema examples
+        schema_examples = {
+            "outline_create": (
+                '{\n'
+                '  "content": "your outline (LaTeX allowed, escape backslashes)",\n'
+                '  "outline_complete": true or false,\n'
+                '  "reasoning": "explanation"\n'
+                '}\n'
+            ),
+            "outline_update": (
+                '{\n'
+                '  "needs_update": true,\n'
+                '  "operation": "insert_after | replace",\n'
+                '  "old_string": "exact text from outline (escape backslashes)",\n'
+                '  "new_string": "new sections (LaTeX allowed, escape backslashes)",\n'
+                '  "reasoning": "explanation"\n'
+                '}\n'
+            ),
+            "construction": (
+                '{\n'
+                '  "needs_construction": true or false,\n'
+                '  "section_complete": true or false,\n'
+                '  "operation": "full_content | replace | insert_after | delete",\n'
+                '  "old_string": "exact text from paper (escape backslashes)",\n'
+                '  "new_string": "replacement text (LaTeX allowed, escape backslashes)",\n'
+                '  "reasoning": "explanation"\n'
+                '}\n'
+            ),
+            "review": (
+                '{\n'
+                '  "needs_edit": true or false,\n'
+                '  "operation": "replace | insert_after | delete",\n'
+                '  "old_string": "exact text from paper (escape backslashes)",\n'
+                '  "new_string": "replacement text (escape backslashes)",\n'
+                '  "reasoning": "explanation"\n'
+                '}\n'
+            ),
+        }
+        
+        schema = schema_examples.get(mode, "{}")
+        
+        return (
+            f"{base_instructions}"
+            f"Please provide your response again in valid JSON format:\n"
+            f"{schema}\n"
+            "Respond with ONLY the JSON object, no markdown, no explanation."
+        )
+

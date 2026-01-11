@@ -1,0 +1,2 @@
+"""Aggregator tool implementation"""
+

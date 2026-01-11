@@ -1,0 +1,378 @@
+---
+alwaysApply: true
+---
+## LM Studio Server Information
+LM Studio and its pre-loaded models can be reached at "http://127.0.0.1:1234".
+**NOTE:** The system works without LM Studio. If LM Studio is unavailable, users can configure OpenRouter for all roles.
+
+## Complete Project Directory Structure and File Descriptions
+project-root/
+├── backend/
+│   ├── shared/                          # SHARED RESOURCES
+│   │   ├── __init__.py                  # Package initialization
+│   │   ├── config.py                    # RAGConfig, SystemConfig
+│   │   ├── models.py                    # Pydantic models (includes ModelConfig, BoostConfig, WorkflowTask)
+│   │   ├── lm_studio_client.py          # LM Studio HTTP API client
+│   │   ├── openrouter_client.py         # OpenRouter HTTP API client (credit exhaustion detection)
+│   │   ├── api_client_manager.py        # Unified API router (OpenRouter/LM Studio fallback + boost)
+│   │   ├── boost_manager.py             # Singleton boost manager (tracks boosted tasks)
+│   │   ├── workflow_predictor.py        # Predicts next 20 API calls (mode-specific algorithms)
+│   │   ├── rag_lock.py                  # Global RAG operation lock (prevents Aggregator/Compiler collision)
+│   │   ├── utils.py                     # Common utilities
+│   │   ├── json_parser.py               # JSON parsing with sanitization for LLM quirks
+│   │   ├── critique_memory.py           # Paper critique persistence (saves up to 10 validator critiques per paper)
+│   │   └── critique_prompts.py          # Default critique prompt and builder function for validator critiques 
+│   ├── aggregator/                      # AGGREGATOR 
+│   │   ├── __init__.py
+│   │   ├── core/
+│   │   │   ├── __init__.py
+│   │   │   ├── rag_manager.py           # 4-stage RAG pipeline orchestrator
+│   │   │   ├── coordinator.py           # Manages 1-10 submitters + 1 validator (default 3, configurable per-submitter)
+│   │   │   ├── queue_manager.py         # Submission queue. Monitors queue size to trigger submitter pause when ≥10 submissions.
+│   │   │   └── context_allocator.py     # Direct injection vs RAG routing (tries direct first, offloads to RAG only when doesn't fit). Includes allocate_cleanup_review_context() which NEVER skips due to size - uses RAG when database too large.
+│   │   ├── ingestion/
+│   │   │   ├── __init__.py
+│   │   │   ├── chunker.py               # Multi-config chunking (256/512/768/1024)
+│   │   │   ├── pipeline.py              # Document ingestion pipeline
+│   │   │   ├── normalizer.py            # Text normalization
+│   │   │   └── metadata_extractor.py    # Extract metadata from chunks
+│   │   ├── validation/
+│   │   │   ├── __init__.py
+│   │   │   ├── contradiction_checker.py # Detect contradictions
+│   │   │   └── json_validator.py        # Validate JSON responses
+│   │   ├── memory/
+│   │   │   ├── __init__.py
+│   │   │   ├── shared_training.py       # Validator-distributed database (accepted submissions)
+│   │   │   ├── local_training.py        # Per-submitter rejection logs (last 5)
+│   │   │   └── event_log.py             # Persistent event log (acceptances, rejections, cleanup removals)
+│   │   ├── agents/
+│   │   │   ├── __init__.py
+│   │   │   ├── submitter.py             # Submitter agent (parallel, cyclic chunk sizes)
+│   │   │   └── validator.py             # Validator agent (sequential validation)
+│   │   └── prompts/
+│   │       ├── __init__.py
+│   │       ├── submitter_prompts.py     # Submitter system prompts + JSON schemas
+│   │       └── validator_prompts.py     # Validator system prompts + JSON schemas
+│   │
+│   ├── compiler/                        # COMPILER (Phase 2 - TO BE IMPLEMENTED)
+│   │   ├── __init__.py                  # Package initialization
+│   │   ├── core/
+│   │   │   ├── __init__.py              # Package initialization
+│   │   │   ├── compiler_coordinator.py  # Orchestrates sequential Markov chain workflow
+│   │   │   └── compiler_rag_manager.py  # Compiler-specific RAG wrapper (user-configurable context per role)
+│   │   ├── agents/
+│   │   │   ├── __init__.py              # Package initialization
+│   │   │   ├── high_context_submitter.py # 3 modes: construction, outline, review
+│   │   │   └── high_param_submitter.py   # Rigor enhancement mode
+│   │   ├── validation/
+│   │   │   ├── __init__.py              # Package initialization
+│   │   │   └── compiler_validator.py    # Validates coherence, rigor, placement
+│   │   ├── prompts/
+│   │   │   ├── __init__.py              # Package initialization
+│   │   │   ├── outline_prompts.py       # Outline generation & update prompts
+│   │   │   ├── construction_prompts.py  # Paper construction prompts
+│   │   │   ├── review_prompts.py        # Paper review/cleanup prompts
+│   │   │   └── rigor_prompts.py         # Rigor enhancement prompts
+│   │   └── memory/
+│   │       ├── __init__.py              # Package initialization
+│   │       ├── outline_memory.py        # Current outline state (direct inject/RAG)
+│   │       ├── paper_memory.py          # Current paper state (direct inject/RAG)
+│   │       └── compiler_rejection_log.py # Last 10 rejections & acceptances
+│   │
+│   ├── autonomous/                      # AUTONOMOUS RESEARCH (Phase 3)
+│   │   ├── __init__.py                  # Package initialization
+│   │   ├── core/
+│   │   │   ├── __init__.py              # Package initialization
+│   │   │   ├── autonomous_coordinator.py # Orchestrates two-tier workflow (brainstorm → paper)
+│   │   │   └── autonomous_rag_manager.py # Autonomous-specific RAG wrapper
+│   │   ├── agents/
+│   │   │   ├── __init__.py              # Package initialization
+│   │   │   ├── topic_selector.py        # Topic selection submitter (new/continue/combine)
+│   │   │   ├── topic_validator.py       # Topic selection validator
+│   │   │   ├── completion_reviewer.py   # Brainstorm completion review (SPECIAL SELF-VALIDATION)
+│   │   │   ├── reference_selector.py    # Reference paper selection workflow
+│   │   │   ├── paper_title_selector.py  # Paper title selection
+│   │   │   └── final_answer/            # TIER 3 - Final Answer Generation Agents
+│   │   │       ├── __init__.py          # Package initialization
+│   │   │       ├── certainty_assessor.py  # Assesses "known certainties" from Tier 2 papers
+│   │   │       ├── answer_format_selector.py # Selects short-form vs long-form answer
+│   │   │       └── volume_organizer.py  # Organizes volume structure (long-form)
+│   │   ├── validation/
+│   │   │   ├── __init__.py              # Package initialization
+│   │   │   └── paper_redundancy_checker.py # Paper library redundancy review
+│   │   ├── prompts/
+│   │   │   ├── __init__.py              # Package initialization
+│   │   │   ├── topic_prompts.py         # Topic selection & validation prompts
+│   │   │   ├── completion_prompts.py    # Completion review & self-validation prompts
+│   │   │   ├── paper_reference_prompts.py # Reference selection prompts
+│   │   │   ├── paper_title_prompts.py   # Paper title selection prompts
+│   │   │   ├── paper_redundancy_prompts.py # Paper redundancy review prompts
+│   │   │   └── final_answer_prompts.py  # TIER 3 - Final answer assessment/selection/volume prompts
+│   │   └── memory/
+│   │       ├── __init__.py              # Package initialization
+│   │       ├── brainstorm_memory.py     # Per-brainstorm database management
+│   │       ├── paper_library.py         # Paper library management (Tier 2)
+│   │       ├── research_metadata.py     # Research metadata (brainstorms + papers associations)
+│   │       ├── autonomous_rejection_logs.py # Topic selection & completion feedback logs
+│   │       ├── final_answer_memory.py   # TIER 3 - Final answer state & volume management
+│   │       └── session_manager.py       # Prompt-based session folder organization
+│   │
+│   ├── scripts/                         # Temporary utility scripts
+│   │   └── cache_openrouter_models.py   # (Auto-deleted after use) Caches OpenRouter models with mapping display_name -> api_id
+│   │
+│   ├── api/
+│   │   ├── __init__.py
+│   │   ├── main.py                      # FastAPI app entry point 
+│   │   ├── middleware.py                # CORS, error handling 
+│   │   └── routes/
+│   │       ├── __init__.py
+│   │       ├── aggregator.py            # Aggregator API endpoints (includes /events)
+│   │       ├── compiler.py              # Compiler API endpoints
+│   │       ├── autonomous.py            # Autonomous Research API endpoints
+│   │       ├── boost.py                 # Boost API endpoints (enable/disable/toggle/status)
+│   │       ├── workflow.py              # Workflow API endpoints (predictions/history)
+│   │       ├── openrouter.py            # OpenRouter API endpoints (global key, models, providers, LM Studio availability, **GET /api/model-cache** for model ID caching)
+│   │       └── websocket.py             # WebSocket for real-time updates
+│   │
+│   ├── data/                            # Persistent data storage
+│   │   ├── user_uploads/                # User-uploaded files
+│   │   ├── model_cache.json             # **Auto-generated by cache script** - Maps display names to OpenRouter API IDs for profile system
+│   │   ├── rag_shared_training.txt      # Accepted submissions (aggregator output)
+│   │   ├── aggregator_event_log.txt     # Persistent event log (key events survive restarts)
+│   │   ├── aggregator_stats.json        # Persistent stats (acceptances, rejections, cleanup stats)
+│   │   ├── compiler_outline.txt         # Current paper outline
+│   │   ├── compiler_paper.txt           # Current paper being constructed
+│   │   ├── compiler_last_10_rejections.txt  # Last 10 compiler rejections
+│   │   ├── compiler_last_10_acceptances.txt # Last 10 compiler acceptances
+│   │   ├── Summary_Of_Last_5_Validator_Rejections_For_Submitter_*.txt  # Aggregator submitter rejections (1-10, dynamically created per submitter)
+│   │   ├── auto_brainstorms/            # Autonomous Research - Tier 1 (Brainstorm databases)
+│   │   │   ├── brainstorm_{topic_id}.txt                  # Per-brainstorm accepted submissions
+│   │   │   ├── brainstorm_{topic_id}_metadata.json        # Brainstorm metadata
+│   │   │   ├── brainstorm_{topic_id}_submitter_1_rejections.txt  # Per-brainstorm submitter rejections
+│   │   │   ├── brainstorm_{topic_id}_submitter_2_rejections.txt
+│   │   │   ├── brainstorm_{topic_id}_submitter_3_rejections.txt
+│   │   │   └── completion_feedback_{topic_id}.txt         # Completion review feedback (last 5)
+│   │   ├── auto_papers/                 # Autonomous Research - Tier 2 (Finished papers)
+│   │   │   ├── paper_{paper_id}.txt                       # Full paper content
+│   │   │   ├── paper_{paper_id}_abstract.txt              # Abstract only
+│   │   │   ├── paper_{paper_id}_source_brainstorm.txt     # Cached brainstorm database
+│   │   │   ├── paper_{paper_id}_last_10_rejections.txt    # Compiler rejections for this paper
+│   │   │   └── archive/                                   # Archived (redundant) papers
+│   │   │       └── paper_{paper_id}.txt
+│   │   ├── auto_final_answer/           # Autonomous Research - Tier 3 (LEGACY - replaced by auto_sessions)
+│   │   │   ├── final_answer_state.json                    # Tier 3 state (crash recovery)
+│   │   │   ├── volume_organization.json                   # Volume structure (long-form)
+│   │   │   ├── tier3_rejections.txt                       # Tier 3 rejection log (last 10)
+│   │   │   ├── chapter_{index}_paper.txt                  # Gap/intro/conclusion papers
+│   │   │   ├── chapter_{index}_outline.txt                # Chapter outlines
+│   │   │   └── final_volume.txt                           # Assembled volume (long-form)
+│   │   ├── auto_sessions/               # Autonomous Research - Session-based folder organization
+│   │   │   └── {sanitized_prompt}_{timestamp}/            # Per-session folder
+│   │   │       ├── brainstorms/                           # Tier 1 brainstorm databases
+│   │   │       ├── papers/                                # Tier 2 completed papers
+│   │   │       ├── final_answer/                          # Tier 3 final answer data
+│   │   │       ├── session_metadata.json                  # Session info (prompt, created_at, status)
+│   │   │       ├── session_stats.json                     # Session statistics
+│   │   │       └── workflow_state.json                    # Workflow state for crash recovery
+│   │   ├── auto_research_metadata.json  # Autonomous Research metadata (LEGACY - now in session folders)
+│   │   ├── auto_research_stats.json     # Autonomous Research statistics (LEGACY - now in session folders)
+│   │   ├── auto_workflow_state.json     # Autonomous Research workflow state (LEGACY - now in session folders)
+│   │   ├── auto_research_topic_rejections.txt  # Topic selection rejections (last 5)
+│   │   └── chroma_db/                   # ChromaDB persistent storage
+│   │
+│   └── logs/                            # Application logs
+│
+├── frontend/
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── aggregator/              # AGGREGATOR
+│   │   │   │   ├── AggregatorInterface.jsx  # User prompt, file upload, start/stop
+│   │   │   │   ├── AggregatorSettings.jsx   # Model selection, context sizes
+│   │   │   │   ├── AggregatorLogs.jsx       # Metrics, acceptance rates, queue; loads persisted events on mount
+│   │   │   │   └── LiveResults.jsx          # Real-time accepted submissions view
+│   │   │   │
+│   │   │   ├── compiler/                # COMPILER
+│   │   │   │   ├── CompilerInterface.jsx    # Replace placeholder: prompt input, start/stop, status
+│   │   │   │   ├── CompilerSettings.jsx     # 3 model selections (validator, high-context, high-param)
+│   │   │   │   ├── CompilerLogs.jsx         # Metrics: construction vs rigor, miniscule edits
+│   │   │   │   └── LivePaper.jsx            # Real-time paper viewing, save draft, word count
+│   │   │   │
+│   │   │   └── autonomous/              # AUTONOMOUS RESEARCH
+│   │   │       ├── AutonomousResearchInterface.jsx  # Main control: research prompt, start/stop, current tier
+│   │   │       ├── BrainstormList.jsx       # List all brainstorm topics with status
+│   │   │       ├── PaperLibrary.jsx         # Grid view of completed papers (title + abstract)
+│   │   │       ├── AutonomousResearchSettings.jsx  # Model configs for all roles
+│   │   │       ├── AutonomousResearchLogs.jsx      # Metrics, graphs, event log
+│   │   │       ├── LivePaperProgress.jsx    # Real-time Tier 2 paper display (embedded in interface)
+│   │   │       ├── LiveTier3Progress.jsx    # Real-time Tier 3 final answer display (embedded in interface)
+│   │   │       └── FinalAnswerView.jsx      # TIER 3 - Final answer tab (separate tab for completed answers)
+│   │   │
+│   │   ├── OpenRouterApiKeyModal.jsx    # Modal for global OpenRouter API key configuration
+│   │   ├── PaperCritiqueModal.jsx       # Modal for displaying validator paper critiques (ratings, feedback, history)
+│   │   │
+│   │   ├── services/
+│   │   │   ├── api.js                   # Backend API calls (includes openRouterAPI)
+│   │   │   └── websocket.js             # WebSocket connection 
+│   │   │
+│   │   ├── App.jsx                      # Main app with tab navigation
+│   │   ├── index.css                    # Styles
+│   │   └── index.jsx                    # React entry point
+│   │
+│   ├── package.json
+│   └── vite.config.js
+│
+├── requirements.txt                     # Python dependencies
+├── package.json                         # Root scripts
+├── launch.bat                           # The user's one-click program launcher.
+└── launch.ps1
+
+## File Purpose Descriptions
+
+### Shared Resources
+
+- `config.py`: System-wide configuration including RAG parameters, context allocation, chunk sizes, aggregator settings (3 submitters, queue limits), compiler settings (startup triggers, separate context windows for validator/high-context/high-param: 131072/131072/131072), **max output token settings** (user-configurable: aggregator submitter=25000, validator=25000; compiler validator=25000, high-context=25000, high-param=25000); **DUAL-PATH ARCHITECTURE**: autonomous research paths are split into legacy paths (auto_brainstorms/, auto_papers/, auto_final_answer/) for backward compatibility and session-based paths (auto_sessions/{session_id}/) for new sessions - path resolution is handled by memory modules (paper_library, brainstorm_memory, etc.), NOT by config helper methods
+- `models.py`: Pydantic data models for DocumentChunk, ContextPack, Submission, ValidationResult, CompilerSubmission, CompilerValidationResult, CompilerState, **ModelConfig** (provider selection + fallback), **BoostConfig** (boost API configuration), **WorkflowTask** (predicted API calls), **ModelUsageEntry** (tracks single model usage), **ModelUsageTracker** (tracks all models for Tier 3 attribution), **FinalAnswerState** (includes model_usage for author attribution and credits); **AggregatorStartRequest and CompilerStartRequest include max_output_tokens fields** for each model role
+- `lm_studio_client.py`: HTTP client for LM Studio API (completions, embeddings, model listing); includes semaphore rate limiting (max 2 concurrent embedding requests) to prevent Nomic API flooding when Aggregator and Compiler run simultaneously; includes `check_availability()` method for startup detection
+- `openrouter_client.py`: HTTP client for OpenRouter API (chat completions); handles API key authentication, detects credit exhaustion (402 errors), raises `CreditExhaustionError` for permanent fallback, includes per-model semaphores for rate limiting
+- `api_client_manager.py`: Unified API client manager that routes calls to OpenRouter or LM Studio; handles permanent fallback on credit exhaustion, integrates boost manager for selective task acceleration, tracks per-role fallback state; supports model tracking callback for Tier 3 author attribution (set via `set_model_tracking_callback`)
+- `boost_manager.py`: Singleton manager for API boost configuration; tracks which workflow tasks use boost OpenRouter model, manages boost enable/disable, broadcasts boost events via WebSocket
+- `workflow_predictor.py`: Predicts next 20 API calls based on workflow state; mode-specific algorithms for Aggregator (single/multi-model), Compiler (outline/construction cycles), and Autonomous Research (tier-aware)
+- `rag_lock.py`: Global async lock for RAG operations; protects ChromaDB write operations when Aggregator (re-RAG immediately after each acceptance) and Compiler (re-RAG every 10 aggregator acceptances) perform index modifications. Read operations use automatic retry logic with exponential backoff to handle transient HNSW index errors during concurrent writes, allowing concurrent reads without blocking on write operations.
+- `utils.py`: Token counting, text compression, file I/O helpers
+- `json_parser.py`: JSON parsing utilities with sanitization for LLM quirks; includes `sanitize_json_response()` which preprocesses LLM outputs to: (1) strip `<think>` reasoning tokens, (2) strip markdown code blocks, (3) strip control tokens, (4) extract only the first complete JSON object when multiple are present, (5) handle LaTeX escape sequences comprehensively including: fixing invalid `\u{word}` patterns, fixing invalid `\uXXXX` non-hex escapes, **pre-escaping dangerous LaTeX commands BEFORE any json.loads() attempt** (prevents `\to` becoming tab+o, `\text` becoming tab+ext, etc.) - dangerous commands include `\to`, `\text`, `\textbf`, `\times`, `\top`, `\tau`, `\theta`, `\triangle`, `\frac`, `\forall`, `\beta`, `\bar`, `\big*`, `\begin`, `\nu`, `\nabla`, `\neq`, `\not*`, `\rho`, `\right*`, `\rightarrow`, `\Rightarrow`, `\upsilon`, `\underline`, `\uparrow`, and converting other invalid escapes through backslash escaping
+- `critique_memory.py`: Paper critique persistence module; stores validator critiques with ratings (1-10 for Novelty, Correctness, Impact), feedback, model identity, host provider, and date; supports three paper types (autonomous_paper, final_answer, compiler_paper); maintains up to 10 critiques per paper (oldest removed when exceeded); async file operations; cleared when associated paper is deleted; **SESSION-AWARE**: all functions accept optional `base_path` parameter for session-based storage (when `base_path` is provided, critiques are stored alongside papers in that directory; when `None`, falls back to legacy paths for backward compatibility)
+- `critique_prompts.py`: Default critique prompt for validator paper reviews; includes `DEFAULT_CRITIQUE_PROMPT` constant (customizable by users via settings), `CRITIQUE_JSON_SCHEMA` (always appended to ensure structured output), and `build_critique_prompt(paper_content, paper_title, custom_prompt)` function
+
+### Compiler Core Components
+
+- `compiler_coordinator.py`: Main orchestrator for sequential Markov chain workflow; manages mode switching (construction → outline → review → rigor), submission/validation loop, paper/outline memory updates
+- `compiler_rag_manager.py`: Wrapper around aggregator RAG manager with user-configurable context windows (separate for each role); uses max of all 3 context windows for conservative RAG budget allocation; handles compiler-specific context (aggregator DB, outline, paper); manages direct injection vs RAG priority (tries direct first, offloads to RAG only when doesn't fit)
+- `outline_memory.py`: Manages paper outline file I/O, re-chunking triggers, outline acceptance/updates
+
+### Compiler Agents
+
+- `high_context_submitter.py`: Low-parameter, high-context model for 3 modes:
+  - **Mode A (Construction)**: Reads aggregator DB (RAG), outline (FULLY INJECTED - always), writes next paper portion
+  - **Mode B (Outline Update)**: Reviews aggregator DB + paper, decides if outline needs changes, outline (FULLY INJECTED - always)
+  - **Mode C (Review/Cleanup)**: Removes aggregator DB from context, reviews only current paper for errors/redundancy, outline (FULLY INJECTED - always)
+- `high_param_submitter.py`: High-parameter, low-context model for rigor enhancement; reads paper (RAG with dynamic budget), outline (FULLY INJECTED), adds mathematical rigor; auto-adjusts RAG if context overflow
+- `critique_submitter.py`: Critique submitter agent for post-body peer review; generates critiques of body section using aggregator workflow; makes rewrite vs continue decision after 5 total attempts (if critiques accepted); handles version tracking and title changes
+
+### Compiler Validation
+
+- `compiler_validator.py`: Sequential validation of all compiler submissions; checks coherence (grammatical + holistic), rigor maintenance, edit placement context, non-redundancy; updates paper/outline on acceptance, rejection log on rejection
+
+### Compiler Prompts
+
+- `outline_prompts.py`: System prompts and JSON schemas for outline generation and updates
+- `construction_prompts.py`: System prompts for paper construction mode (write next portion)
+- `review_prompts.py`: System prompts for paper review/cleanup mode (no aggregator DB)
+- `rigor_prompts.py`: System prompts for rigor enhancement mode
+- `critique_prompts.py`: System prompts and JSON schemas for critique generation, critique validation, and rewrite decision; includes rewrite decision validation prompt
+
+### Compiler Memory
+
+- `outline_memory.py`: File I/O for `compiler_outline.txt`, triggers re-chunking on updates, tracks version
+- `paper_memory.py`: File I/O for `compiler_paper.txt`, real-time updates for GUI, tracks word count; includes version tracking methods (store_previous_version, get_previous_versions) and clear_body_section() for rewrites
+- `compiler_rejection_log.py`: Maintains last 10 rejections and last 10 acceptances (appended as text, not embedded); rejections use enhanced format with prominent "🚫 REJECTED BECAUSE" header, structured failure criterion identification, validator reasoning, submission preview (first 300 chars), and actionable "WHAT TO FIX" guidance based on failure type to improve model learning
+- `critique_memory.py`: Manages critique feedback database for peer review aggregation; stores accepted critiques separately from main shared training; supports pruning via remove_critique(); cleared at start of each critique phase
+- `critique_rejection_memory.py`: Manages critique rejection feedback; stores last 5 validator rejections (rolling window); format: validator summary (750 chars) + submission preview (750 chars); enables critique submitter to learn from mistakes; file: `backend/data/critique_rejection_feedback.txt`; cleared at start of each critique phase for fresh start
+
+### Backend Utility Scripts
+
+- `cache_openrouter_models.py` (`backend/scripts/`, **auto-deleted after execution**): **Temporary cache script** that fetches OpenRouter models via `OpenRouterClient` and caches them as JSON mapping (display_name → api_id) to `backend/data/model_cache.json`; called automatically by `startup.sh` / `startup.ps1`; enables profile system to convert hard-coded display names to canonical OpenRouter API IDs
+
+### Autonomous Research Core Components
+
+- `autonomous_coordinator.py`: Main orchestrator for three-tier workflow (Tier 1: brainstorm aggregation → Tier 2: paper compilation → Tier 3: final answer generation); manages topic selection, brainstorm completion reviews, paper writing workflow, paper redundancy reviews; triggers Tier 3 every 5 papers in the library (based on actual `paper_library.count_papers()["active"]`, not internal counters); returns to topic selection after each paper completion OR terminates after Tier 3 final answer; **includes full Tier 3 crash recovery via `_resume_tier3_workflow()` and helper methods** (`_resume_tier3_from_format_selection()`, `_resume_tier3_short_form()`, `_resume_tier3_long_form()`)
+- `autonomous_rag_manager.py`: Autonomous-specific RAG wrapper; manages context for brainstorm databases, paper library, reference papers; handles per-brainstorm and per-paper RAG operations
+
+### Autonomous Research Agents
+
+- `topic_selector.py`: Topic selection submitter; decides whether to create new brainstorm topic, continue existing topic, or combine topics; receives all brainstorm metadata + completed papers (title/abstract/word count)
+- `topic_validator.py`: Topic selection validator; validates topic choice using same context as submitter
+- `completion_reviewer.py`: Brainstorm completion review agent; assesses if brainstorm is ready for paper writing; uses SPECIAL SELF-VALIDATION MODE (same model validates its own assessment)
+- `reference_selector.py`: Reference paper selection workflow; shows paper abstracts, allows expansion requests, final selection of up to 6 papers for compilation context
+- `paper_title_selector.py`: Paper title selection; chooses appropriate title based on brainstorm content and existing papers from same brainstorm
+
+### Tier 3 Final Answer Agents
+
+- `certainty_assessor.py`: Tier 3 - Assesses "known certainties" from Tier 2 papers; browses papers via two-step selection (abstracts → full content); determines certainty level (total_answer/partial_answer/no_answer_known/appears_impossible); validated via topic validator
+- `answer_format_selector.py`: Tier 3 - Selects answer format (short_form/long_form) based on certainty assessment; validated via topic validator; determines if single paper or volume is needed
+- `volume_organizer.py`: Tier 3 - Organizes volume structure for long-form answers; iterative refinement with validation (max 15 iterations); selects existing papers as chapters, identifies gap papers needed; validates structure completeness
+
+### Autonomous Research Validation
+
+- `paper_redundancy_checker.py`: Paper library redundancy review; runs every 3 completed papers; identifies maximum 1 paper for removal if redundant; conservative approach (when in doubt, keep)
+
+### Autonomous Research Prompts
+
+- `topic_prompts.py`: System prompts and JSON schemas for topic selection and validation
+- `completion_prompts.py`: System prompts for completion review and self-validation
+- `paper_reference_prompts.py`: System prompts for reference paper expansion and selection
+- `paper_title_prompts.py`: System prompts for paper title selection
+- `paper_redundancy_prompts.py`: System prompts for paper redundancy review
+- `final_answer_prompts.py`: Tier 3 - System prompts and JSON schemas for certainty assessment, format selection, volume organization, and final paper writing (gap/intro/conclusion)
+
+### Autonomous Research Memory
+
+- `brainstorm_memory.py`: Per-brainstorm database management; file I/O for `brainstorms/brainstorm_{topic_id}.txt`; tracks metadata, submission counts, status; supports session-based paths via `set_session_manager()`
+- `paper_library.py`: Paper library management (Tier 2); file I/O for papers, abstracts, source brainstorm caches; handles paper completion, archival; supports session-based paths via `set_session_manager()`
+- `research_metadata.py`: Research metadata management; tracks all brainstorms with their generated papers; maintains associations, statistics; supports session-based paths via `set_session_manager()`
+- `session_manager.py`: Session folder organization; creates prompt-based folders (`auto_sessions/{sanitized_prompt}_{timestamp}/`); singleton with `get_brainstorms_dir()`, `get_papers_dir()`, `get_final_answer_dir()`; enables data isolation between sessions
+- `autonomous_rejection_logs.py`: Topic selection rejections (last 5), completion feedback (last 5 per topic), per-brainstorm submitter rejections (last 5 each)
+- `final_answer_memory.py`: Tier 3 - Final answer state management; stores certainty assessment, format selection, volume organization, chapter writing progress; handles crash recovery for Tier 3; maintains independent 10-rejection log separate from Tiers 1/2; **includes model usage tracking** for author attribution and credits (tracks all models and API call counts); provides `assemble_final_volume()` and `assemble_short_form_paper()` methods that include author attribution header and model credits footer; **automatically archives all referenced papers and source brainstorms to `source_papers/` and `source_brainstorms/` subdirectories when assembling final answer**; provides archive retrieval methods for frontend access via modal viewer
+
+### API Routes
+
+- `compiler.py`: REST endpoints:
+  - `POST /api/compiler/start` - Start compiler with compiler-directing prompt
+  - `POST /api/compiler/stop` - Stop compiler
+  - `GET /api/compiler/status` - Get current status (mode, metrics, running)
+  - `GET /api/compiler/paper` - Get current paper content
+  - `GET /api/compiler/outline` - Get current outline
+  - `POST /api/compiler/save-paper` - Save paper to .txt file
+  - `GET /api/compiler/metrics` - Get acceptance/rejection stats
+  - `POST /api/compiler/critique-paper` - Request validator critique of current paper
+  - `GET /api/compiler/critiques` - Get all critiques for current paper
+  - `DELETE /api/compiler/critiques` - Clear all critiques for current paper
+  - `GET /api/compiler/default-critique-prompt` - Get default critique prompt text
+
+- `autonomous.py`: REST endpoints:
+  - `POST /api/auto-research/start` - Start autonomous research with research prompt
+  - `POST /api/auto-research/stop` - Stop autonomous research gracefully
+  - `POST /api/auto-research/clear` - Clear all autonomous research data
+  - `GET /api/auto-research/status` - Get current status (tier, brainstorm/paper progress, Tier 3 status)
+  - `GET /api/auto-research/brainstorms` - List all brainstorm topics with metadata
+  - `GET /api/auto-research/papers` - List all completed papers with abstracts
+  - `GET /api/auto-research/brainstorm/{topic_id}` - Get specific brainstorm database
+  - `GET /api/auto-research/paper/{paper_id}` - Get specific paper content
+  - `GET /api/auto-research/final-answer-status` - Get Tier 3 final answer status
+  - `GET /api/auto-research/final-answer-volume` - Get assembled final volume (long form)
+  - `GET /api/auto-research/final-answer-paper` - Get final answer paper (short form)
+  - `GET /api/auto-research/final-answer/paper/{chapter_index}` - Get specific volume chapter content
+
+### Frontend Components
+
+- `CompilerInterface.jsx`: Compiler-directing prompt input, start/stop buttons, status indicator, link to aggregator database, displays all 4 context sizes (validator, high-context, high-param, critique submitter), **passes max output token settings** from localStorage to API
+- `CompilerSettings.jsx`: Model selection dropdowns (validator, high-context, high-param, critique submitter), **"Use Aggregator Models" button** (copies aggregator model selection to all compiler roles), **per-role provider toggle** (LM Studio / OpenRouter), OpenRouter model and host provider selection, optional LM Studio fallback, **separate context size AND max output token settings** for each role (context defaults: validator 131072, high-context 131072, high-param 131072, critique submitter 131072; output defaults: all roles 25000), settings persist in localStorage
+- `CompilerLogs.jsx`: Real-time metrics (total submissions, construction vs rigor acceptances/rejections), graphs (acceptance rates over time), miniscule edit counter, current mode indicator
+- `LivePaper.jsx`: Real-time paper viewing with auto-scroll, save draft button, word count display, "Generate Final" button (stops compilation, saves final); **integrates LatexRenderer with Rendered/Raw toggle**; **PDF download** (via downloadHelpers.js with metadata header) and **raw text download** capabilities
+- `AggregatorSettings.jsx`: Model selection dropdowns (submitter, validator), **per-role provider toggle** (LM Studio / OpenRouter), OpenRouter model and host provider selection, optional LM Studio fallback, **context size AND max output token settings** for each role (context defaults: 131072 both; output defaults: submitter 25000, validator 25000), **tooltips with recommendations**, auto-save on change
+
+- `AutonomousResearchInterface.jsx`: Main control interface; research prompt input, start/stop/clear buttons, current tier display (Tier 1: Brainstorm / Tier 2: Paper Writing / Tier 3: Final Answer), current brainstorm/paper progress, live activity feed (topic selections, submissions, completions, Tier 3 events); **renders LivePaperProgress for Tier 2 and LiveTier3Progress for Tier 3 inline**
+- `BrainstormList.jsx`: Brainstorm management; list all brainstorm topics with status badges (In Progress/Complete), submission counts, papers generated from each brainstorm, expandable to show brainstorm database content
+- `PaperLibrary.jsx`: Paper library; grid/list view of all completed papers with title + abstract preview, expandable to show full paper content via **LatexRenderer with Rendered/Raw toggle**; word count, source brainstorm links; **PDF download** (via downloadHelpers.js with full metadata: title, word count, date, models) and **raw text download** (with outline) capabilities; search and filter functionality
+- `AutonomousResearchSettings.jsx`: Settings integrated into main Settings panel; research prompt (updateable while running), model selections for all roles (brainstorm submitters, validator, high-context, high-param, critique submitter), **per-role provider toggle** (LM Studio / OpenRouter), OpenRouter model and host provider selection, optional LM Studio fallback, context window sizes per model, max output tokens per model
+- `AutonomousResearchLogs.jsx`: Metrics and logging; real-time metrics (total brainstorms, total papers, acceptance/rejection rates for brainstorm vs paper), graphs (acceptance rates over time, papers per brainstorm distribution), event log with timestamps
+- `LivePaperProgress.jsx`: Real-time Tier 2 paper display (embedded in AutonomousResearchInterface); shows paper content as it's being written during Tier 2 paper compilation; uses `/api/auto-research/current-paper-progress` for content; listens to `paper_updated` WebSocket events; includes auto-scroll toggle, LatexRenderer with Rendered/Raw toggle, PDF and raw text download
+- `LiveTier3Progress.jsx`: Real-time Tier 3 final answer display (embedded in AutonomousResearchInterface); shows Tier 3 status (phase, format), chapter progress for long-form volumes, and paper content as it's being written; uses `/api/auto-research/current-paper-progress` (now supports tier3) and `/api/auto-research/tier3/volume-progress`; listens to tier3 WebSocket events (`tier3_chapter_started`, `tier3_chapter_complete`, `tier3_paper_started`, `tier3_phase_changed`, `tier3_format_selected`, `tier3_volume_organized`, `paper_updated`); includes auto-scroll, LatexRenderer, download options
+- `FinalAnswerView.jsx`: Tier 3 final answer tab (separate tab for viewing completed final answers); status badges (FINAL ANSWER IN PROGRESS / FINAL ANSWER ✓), certainty assessment summary, format selection indicator, volume organization outline with chapter status (long form), final answer content viewer via **LatexRenderer with Rendered/Raw toggle**; auto-scroll toggle, export options; **distinction from LiveTier3Progress**: FinalAnswerView is a separate tab for viewing completed answers, while LiveTier3Progress is embedded in main interface for real-time generation display
+
+### Frontend Utilities and Shared Components
+
+- `LatexRenderer.jsx` (`frontend/src/components/`): **Central component for all mathematical content rendering**; dual view modes: (1) **Rendered** - formatted LaTeX output with KaTeX math rendering, custom environment parsing (theorem, proof, definition, lemma, corollary, example, remark, proposition), section header detection, white background for PDF export, error message escaping via escapeHtml() utility (KaTeX uses trust mode; see [content-rendering-system.mdc](.cursor/rules/content-rendering-system.mdc)); (2) **Raw** - plain text display on dark background (`#1a1a1a` bg, `#d4d4d4` text, JetBrains Mono font) for code-style viewing/copying; toggle control via `showToggle` prop; integrates with downloadHelpers.js for PDF generation (html2pdf.js wrapper) and raw text export
+
+- `LatexRenderer.css` (`frontend/src/components/`): Styles for LaTeX rendering system; defines `.latex-rendered-content` (white background, serif font, professional formatting for PDF export) and `.latex-raw-content` (dark background code-style display with monospace font); includes custom environment styling (theorem boxes, proof indicators), math rendering support, section header formatting
+
+- `downloadHelpers.js` (`frontend/src/utils/`): PDF and raw text download utilities; **`downloadPDF(element, metadata, filename, outline)`** - captures DOM element via html2canvas, generates PDF via jsPDF with metadata header (title, word count, date, models), fits content to A4 portrait format, splits across multiple pages if needed; **`downloadRawText(content, filename, outline)`** - downloads plain text file with optional outline prepended, UTF-8 encoded; **`sanitizeFilename(filename)`** - cleans special characters for cross-platform filesystem compatibility; used by LivePaper.jsx, PaperLibrary.jsx, LivePaperProgress.jsx, LiveTier3Progress.jsx, and FinalAnswerView.jsx

@@ -1,0 +1,20 @@
+# FastAPI and web server
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+websockets>=12.0
+
+# RAG and embeddings  
+chromadb>=0.4.22
+sentence-transformers>=2.3.1
+rank-bm25>=0.2.2
+
+# Data processing
+numpy>=1.26.0
+pydantic>=2.5.3
+pydantic-settings>=2.1.0
+
+# Utilities
+python-dotenv>=1.0.0
+aiofiles>=23.2.1
+tiktoken>=0.5.2

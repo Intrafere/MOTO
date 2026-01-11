@@ -1,0 +1,2740 @@
+---
+alwaysApply: true
+---
+# Enhance AI Role Prompts with Complete Context Assembly
+
+**VARIANT: MOTO - Math Variant V1**  
+**Focus:** Mathematical problem-solving, proofs, and theoretical analysis (not engineering applications)
+
+## Overview
+
+This plan shows the complete prompt structure sent to each LLM for the **Math Variant** - focused on mathematical expositions, proofs, and theoretical analysis.
+
+## Prompt Engineering Principles
+
+These principles prevent rejection loops and ensure models learn from feedback:
+
+### 1. CONCRETE FORMAT EXAMPLES (REQUIRED)
+Every prompt with format requirements MUST include:
+- ✅ **CORRECT format examples** with visual indicators (✓ checkmarks, green indicators)
+- ❌ **WRONG format examples** with explanations of why they're invalid
+- 🔧 **FIX instructions** showing how to correct common errors
+
+**Example Structure**:
+```
+🔍 CORRECT FORMAT:
+
+[Concrete example with proper formatting]
+
+❌ WRONG FORMATS - DO NOT DO THESE:
+
+1. [Wrong example 1] ❌ NO - [Why it's wrong]
+2. [Wrong example 2] ❌ NO - [Why it's wrong]
+```
+
+### 2. STRUCTURED REJECTION FEEDBACK (REQUIRED)
+All validator prompts MUST specify this feedback format:
+
+```
+REJECTION REASON: [Specific Category]
+
+ISSUE: [What's wrong with the submission]
+
+WHAT I SAW:
+[Exact excerpt or description of the problem]
+
+WHAT I EXPECTED:
+[Concrete example of correct format]
+
+FIX REQUIRED:
+[Step-by-step actionable instructions]
+```
+
+This format ensures:
+- Models understand EXACTLY what was wrong
+- Models see CONCRETE examples of correct format
+- Feedback is ACTIONABLE, not vague
+- Learning from mistakes is possible
+
+### 3. PRE-VALIDATION CHECKS (RECOMMENDED)
+For critical structural requirements (e.g., section headers, required fields), implement **regex-based pre-validation** before LLM validator:
+
+**Example**: `_pre_validate_outline_structure()` in `compiler_coordinator.py` checks for Abstract/Introduction/Conclusion headers using regex patterns before calling the LLM validator.
+
+**Placeholder Stripping**: Instead of rejecting submissions containing placeholder text, the compiler validator silently strips placeholder markers before validation proceeds. This simplifies the workflow by eliminating rejection feedback loops.
+
+The stripper removes:
+- All exact placeholder constants (`ABSTRACT_PLACEHOLDER`, `INTRO_PLACEHOLDER`, `CONCLUSION_PLACEHOLDER`, `PAPER_ANCHOR`)
+- Generic patterns like `[HARD CODED...]` and `[PLACEHOLDER FOR...]`
+- Excessive whitespace left behind after stripping
+
+This approach is more robust than rejection because it handles both intentional reproduction and edge cases where placeholders leak into submissions.
+
+**Outline vs Paper Confusion Detection**: The `_pre_validate_exact_string_match()` function in `compiler_validator.py` detects when models reference OUTLINE text instead of PAPER text:
+- When `old_string` is not found in the paper, the system checks if it exists in the outline
+- If found in outline, provides targeted feedback: "OUTLINE_VS_PAPER_CONFUSION" with specific instructions
+- This catches the common mistake where models use section headers/text from the outline that haven't been written yet
+- Reduces rejection loops by giving models actionable guidance to use CURRENT DOCUMENT PROGRESS
+
+**Rejection Feedback Flow**: When any pre-validation or LLM validation rejects a submission, the rejection reason is:
+1. Logged to `compiler_rejection_log` (included in submitter's "Last 10 rejections" context)
+2. Passed directly as `rejection_feedback` to the next submission attempt in the construction loop (displayed prominently with "IMPORTANT - YOUR PREVIOUS RESPONSE WAS REJECTED" header)
+
+This ensures models learn from mistakes across iterations within the same construction cycle.
+
+### 4. EXPLICIT VALIDATION CRITERIA (REQUIRED)
+Validator prompts MUST include explicit criteria with ✓ VALID / ❌ INVALID examples:
+
+```
+SECTION NAME VALIDATION:
+
+1. **Abstract Header Check**:
+   ✓ VALID: A line containing ONLY "Abstract" (case-insensitive)
+   ❌ INVALID: "Summary of..." or any descriptive text
+
+2. **Introduction Header Check**:
+   ✓ VALID: "Introduction" or "I. Introduction"
+   ❌ INVALID: "Overview" or "Background"
+```
+
+### 4B. Content Field Validation (Body Phase)
+The body construction phase requires that `new_string` is never empty when `needs_construction=true`:
+
+```
+CONTENT REQUIREMENT
+
+If you set needs_construction=true, you MUST provide actual content in new_string.
+- needs_construction=true + new_string="" is INVALID and will be rejected
+- needs_construction=true means you ARE writing content - so PROVIDE it
+- Only set needs_construction=false if NO body sections remain to write
+- The "new_string" field must NEVER be empty when needs_construction=true
+
+WRONG (will be rejected):
+{
+  "needs_construction": true,
+  "new_string": "",  // ❌ INVALID - content is empty but needs_construction is true
+}
+
+CORRECT:
+{
+  "needs_construction": true,
+  "new_string": "II. Preliminaries\\n\\nWe begin by establishing...",  // ✅ Actual content
+}
+```
+
+### 5. Wrong/Correct Response Patterns
+For flows prone to contradictory responses (e.g., phase completion), include explicit examples:
+
+```
+WRONG RESPONSE (DO NOT DO THIS):
+{
+  "needs_construction": false,  // ❌ Claims no content needed
+  "section_complete": true,     // ❌ Claims phase done
+  "content": ""                 // ❌ Provides nothing
+}
+
+CORRECT RESPONSE:
+{
+  "needs_construction": true,   // ✅ Provides content
+  "section_complete": true,     // ✅ Completes phase
+  "content": "[actual content]" // ✅ Real content
+}
+```
+
+### WHY THESE PRINCIPLES MATTER
+
+**Without them**: Models experience infinite rejection loops because:
+- They don't know what "correct" looks like (ambiguous requirements)
+- Validators interpret requirements inconsistently (LLM variance)
+- Feedback is vague ("missing X" without showing X)
+- Models keep guessing, never learning
+
+**With them**: Models converge rapidly because:
+- Concrete examples eliminate guessing (show don't tell)
+- Pre-validation provides consistent structural checks
+- Structured feedback is actionable (here's how to fix)
+- Models learn patterns from clear before/after examples
+
+## Key Constraints
+
+- Keep all existing JSON schemas unchanged
+- Keep binary accept/reject validation (no 4-tier system)
+- Add "YOUR TASK:" sections with detailed evaluation criteria
+- Improve validator rigor (currently lacks evaluation depth)
+- Maintain existing prompt assembly order: System → JSON Schema → User Prompt → Context → RAG → Final Instruction
+- **MATH VARIANT**: Citation requirements REMOVED. Focus on mathematical rigor, logical correctness, and established mathematical principles. Models with web search capabilities are encouraged to use them for verification. Validation is purely AI-driven.
+- **Compiler Outline Injection**: The compiler outline is always fully injected (never truncated, never RAGed) for all modes (construction, outline_update, review, rigor, validator) because it provides the structural framework for document construction and validation.
+- **TEMPERATURE POLICY**: All prompts use temperature=0.0 (deterministic generation). The system's evolving context (growing databases, rejection feedback, cyclic RAG chunk sizes, completion reviews) provides sufficient diversity. Deterministic generation ensures: (1) Reproducible results for debugging, (2) Consistent JSON formatting, (3) Stable validation decisions, (4) Predictable behavior across long research sessions. This applies to ALL agents: aggregator submitters/validator, compiler submitters/validator, autonomous agents, and all retry/reparse operations.
+- **NATURAL COMPLETION POLICY**: Models are allowed to stop naturally when they complete their JSON response. The system does not enforce stop sequences. Both LM Studio and OpenRouter clients allow models to complete naturally without forcing generation to `max_tokens` limits. The `sanitize_json_response()` function in `backend/shared/json_parser.py` handles any trailing whitespace, padding, incomplete tokens, or newline spam in model outputs, including detecting and repairing 10+ consecutive newlines at the end of responses. This approach is simpler and more flexible than stop sequences, allowing models to naturally conclude their output.
+- **JSON Response Preprocessing**: All LLM responses are preprocessed by `sanitize_json_response()` in `backend/shared/json_parser.py` to: (1) Strip reasoning tokens (e.g., `<think>...</think>`) used by DeepSeek R1, QwQ-32B, and similar reasoning models, (2) Strip markdown code block wrappers (````json` ... ````), (3) Strip model control tokens (e.g., `<|channel|>`, `<|constrain|>`, `<|message|>`) using regex pattern matching, (4) **Extract only the first complete JSON object when multiple objects are present** (reasoning models sometimes output multiple JSON responses or wrap JSON in explanatory text), (5) **Search for JSON anywhere in text** if not found at start (handles models that output explanations before/after JSON), (6) **Handle LaTeX escape sequences comprehensively**: (a) Fix invalid `\u{word}` patterns (e.g., `\u{widehat}` → `\\u{widehat}`), (b) Fix invalid `\uXXXX` where XXXX is not exactly 4 hex digits (e.g., `\uinfty` → `\\uinfty`), (c) **Pre-escape dangerous LaTeX commands BEFORE any json.loads() attempt** (prevents `\to` becoming tab+o, `\text` becoming tab+ext, etc.) - dangerous commands include `\to`, `\text`, `\textbf`, `\times`, `\top`, `\tau`, `\theta`, `\triangle`, `\frac`, `\forall`, `\beta`, `\bar`, `\big*`, `\begin`, `\nu`, `\nabla`, `\neq`, `\not*`, `\rho`, `\right*`, `\rightarrow`, `\Rightarrow`, `\upsilon`, `\underline`, `\uparrow`, (d) Convert other invalid escapes to valid JSON through comprehensive backslash escaping, (7) **Escape control characters ONLY inside JSON strings** (not structural whitespace) - raw control characters (0x00-0x1F) inside string values cause "Invalid control character" errors; the sanitizer parses character-by-character to track string boundaries and only escapes control chars inside strings, preserving structural newlines/tabs between JSON tokens, (8) **Detect and repair trailing newline spam** - some models fill remaining tokens with `\n\n\n...` instead of closing the JSON properly; the sanitizer detects 10+ consecutive newlines at the end, strips them, analyzes the structure (unclosed strings/braces/brackets), and automatically repairs by adding the necessary closing characters (`"`, `}`, `]`), (9) **Detect truncated/unterminated JSON** - logs warnings when JSON objects have unclosed braces/brackets (usually caused by LLM hitting max_tokens before completing the response), (10) **Explicit error on pure reasoning text** - if after all sanitization steps NO JSON structure is found (no opening brace or bracket), raises explicit ValueError with message "No JSON found in response - only conversational reasoning text" indicating the model spent all tokens on reasoning before writing JSON; this provides clearer diagnostics than generic parse errors and helps retry mechanisms detect this specific failure mode. After `json.loads()` parsing, the content is used directly **without** additional `.decode('unicode_escape')` processing, which would corrupt Unicode characters and LaTeX notation. **Enhanced Error Logging**: The `parse_json()` function provides detailed logging on failures including: original response length and preview (first 500/last 200 chars), sanitized content preview, error position context (50 chars before/after error), specific error type and location, **truncation detection** (warns if response appears truncated with unclosed braces/brackets or unterminated strings), **no JSON structure detection** (explicit "🚨 MODEL OUTPUT CONTAINS NO JSON STRUCTURE" error when only reasoning text is present). **Array Response Handling**: `parse_json()` automatically extracts `data[0]` if the model returns an array instead of a single object, logging a warning and using only the first element.
+- **No Startup Compatibility Testing**: The system does NOT test models for JSON compatibility at startup. Models are trusted to work, and the JSON sanitizer handles all quirks (reasoning tokens, markdown, control tokens, etc.) automatically. Model configs are cached on first successful use for recovery purposes.
+- **Reasoning Field Extraction**: Some reasoning models (e.g., certain GPT variants, DeepSeek) output their response in a separate `reasoning` field instead of the standard `content` field in the API response. All agent code checks BOTH fields: `message.get("content", "") or message.get("reasoning", "")` to handle both response formats. This ensures compatibility with models that use either field for JSON output.
+- **Centralized JSON Parsing**: All agents across the entire codebase use the central `parse_json()` function from `backend/shared/json_parser.py` for consistent JSON parsing. This includes: (1) All aggregator submitters and validators, (2) All compiler submitters (high-context, high-param, critique) and validator, (3) All autonomous research agents (topic selector/validator, completion reviewer, reference selector, paper title selector, final answer agents, paper redundancy checker). The central function provides: unified sanitization logic, enhanced error logging with detailed diagnostics, and automatic array-to-object conversion. **This eliminates duplicate parsing logic and ensures all agents benefit from parsing improvements**. The only exceptions are memory modules loading JSON from system-written files (brainstorm metadata, paper metadata, etc.) which use direct `json.loads()` since they're loading structured data written by the system itself, not LLM-generated responses.
+- **Specialized Retry for Pure Reasoning Text**: When a JSON parse error contains "No JSON found" or "only conversational reasoning", the aggregator submitter (`backend/aggregator/agents/submitter.py`) uses a specialized retry prompt that differs from the standard LaTeX-focused retry. The specialized prompt explicitly instructs the model to: (1) NOT think step-by-step, (2) start the response with `{` immediately, (3) output only raw JSON without markdown or explanation. This handles models that spend all tokens on chain-of-thought reasoning before writing JSON. The standard retry prompt (focused on LaTeX escaping) is used for other JSON formatting errors. Note: if a model consistently outputs only reasoning text, it may be fundamentally incompatible with the required JSON output format - the retry mechanism cannot fix architectural model behavior.
+- **Standard LaTeX-Focused Retry**: For JSON formatting errors (not pure reasoning text), retry prompts guide models on proper LaTeX escaping in JSON. **CRITICAL**: Retry prompts DO NOT tell models to avoid LaTeX - they explain HOW to properly escape it. Key guidance: (1) **LaTeX IS allowed** in content, (2) Every backslash needs ONE escape in JSON (`\mathbb` → `\\mathbb`), (3) Do NOT double-escape (`\\\\mathbb` is wrong), (4) For `old_string`: copy text EXACTLY from document, just escape backslashes. This ensures models can correctly match LaTeX content during exact string matching for edits. The previous approach of telling models "DO NOT use LaTeX notation" caused models to either strip mathematical content or double-escape backslashes, leading to validation failures.
+- **Retry Context Overflow Prevention (CRITICAL)**: Conversational retry prompts include the original prompt + failed LLM output + retry instructions. When the failed output is large (e.g., 90K+ tokens from a reasoning model), this can EXCEED the context window, causing API errors like "requested about 138374 tokens... maximum context length is 131072". **FIX**: All retry logic MUST: (1) Truncate failed output to ~2000 chars (~500 tokens) before including in retry conversation, (2) Calculate if the retry conversation fits in context window BEFORE sending, (3) Fall back to simple re-prompting (original prompt only) if conversation is too large, (4) Set `max_tokens` explicitly on retry calls (never `None`). This applies to: `submitter.py` (two-stage retry), `validator.py` (single retry + batch retry), `high_param_submitter.py`, and `compiler_validator.py`.
+
+## Internal Content Warning (Required in All Prompts)
+
+Every system prompt in this codebase includes a standardized skepticism warning block. This prompt engineering feature prevents AI "echo chambers" where models compound flawed AI-generated content.
+
+**Why This Exists:**
+- All context provided to AI agents (brainstorm databases, accepted submissions, papers, outlines, etc.) is AI-GENERATED within this research system
+- This content has NOT been peer-reviewed, published, or externally verified
+- Without explicit warnings, models tend to treat internal context as authoritative truth
+- This leads to compounding errors where flawed AI-generated claims get built upon
+
+**Standard Warning Block (included in all prompts):**
+```
+INTERNAL CONTENT WARNING
+
+All context provided to you (brainstorm databases, accepted submissions, papers, reference materials, outlines, previous document content) is AI-generated within this research system. This content has NOT been peer-reviewed, published, or verified by external sources.
+
+Treat all provided context with extreme skepticism:
+- NEVER assume claims are true because they "sound good" or "fit well"
+- NEVER trust information simply because it appears in "accepted submissions" or "papers"
+- ALWAYS verify information independently before using or building upon it
+- NEVER cite internal documents as authoritative or established sources
+- Question and validate every assertion, even if it appears in validated content
+
+WEB SEARCH STRONGLY ENCOURAGED:
+If your model has access to real-time web search capabilities (such as Perplexity Sonar or similar), you are STRONGLY ENCOURAGED to use them to:
+- Verify mathematical claims against current published research
+- Access recent developments and contemporary mathematical literature
+- Cross-reference theorems, proofs, and techniques with authoritative sources
+- Supplement analysis with verified external information
+- Validate approaches against established mathematical consensus
+
+The internal context shows what has been explored by AI agents, NOT what has been proven correct. Your role is to generate rigorous, verifiable mathematical content. Use all available resources - internal context as exploration history, your base knowledge for reasoning, and web search (if available) for verification and current information.
+
+WHEN IN DOUBT: Verify independently. Do not assume. Do not trust unverified internal context as truth. If you have web search, use it.
+```
+
+**Files Containing This Warning:**
+- `backend/aggregator/prompts/submitter_prompts.py`
+- `backend/aggregator/prompts/validator_prompts.py`
+- `backend/compiler/prompts/construction_prompts.py`
+- `backend/compiler/prompts/outline_prompts.py`
+- `backend/compiler/prompts/review_prompts.py`
+- `backend/compiler/prompts/rigor_prompts.py`
+- `backend/compiler/validation/compiler_validator.py`
+- `backend/autonomous/prompts/topic_prompts.py`
+- `backend/autonomous/prompts/completion_prompts.py`
+- `backend/autonomous/prompts/paper_reference_prompts.py`
+- `backend/autonomous/prompts/paper_title_prompts.py`
+- `backend/autonomous/prompts/paper_redundancy_prompts.py`
+- `backend/autonomous/prompts/final_answer_prompts.py`
+
+**Note:** The prompt structure examples in the sections below show the core task-specific content. The INTERNAL CONTENT WARNING block is ALWAYS inserted between the role description and the "YOUR TASK:" section in the actual code.
+
+---
+
+## 1. AGGREGATOR VALIDATOR
+
+**File:** `backend/aggregator/prompts/validator_prompts.py`
+
+### Complete Prompt Structure
+
+**Function:** `get_validator_system_prompt()`
+
+```python
+def get_validator_system_prompt() -> str:
+    return """You are a validation agent in an AI cluster. Your role is to evaluate mathematical submissions and decide whether they should be added to the shared knowledge base.
+
+YOUR TASK:
+Tell me if the addition of the new submission increases potential solution availability in a significant way and/or provides a valuable solution space-constraint that narrows where we need to search in a significant way.
+
+Essentially, you are evaluating whether the training database becomes more useful toward finding mathematical solutions with this submission added than it was without it.
+
+Note: You are not generating solutions yourself - you are assessing if there are new solutions potentially available if we add this submission to the training database, or if the solution space becomes stronger in any way.
+
+EVALUATION CRITERIA - Consider:
+- Does the submission add genuinely new information or perspectives beyond what is already accepted?
+- Does the submission connect existing mathematical concepts in novel ways?
+- Does the submission provide concrete methods, theorems, proofs, or mathematical techniques?
+- Is the submission redundant with current accepted submissions, user provided information, or common mathematical knowledge?
+- Is the submission obviously unhelpful or time-wasting content?
+- Is the submission grounded in established mathematical principles and rigorous logic?
+- Does the submission avoid unfounded claims or logical fallacies?
+- Is the submission based on proven mathematical theorems and valid reasoning?
+
+VALIDATION DECISION RULES:
+A submission should be ACCEPTED if it:
+1. Increases potential solution availability in a significant way, OR
+2. Provides valuable solution space constraints that narrow where to search, OR
+3. Offers novel mathematical insights not present in existing accepted submissions, OR
+4. Presents rigorous mathematical arguments based on established principles
+
+A submission should be REJECTED if it:
+1. Is redundant with the existing accepted submissions
+2. Contains trivial or common mathematical knowledge while also having nothing novel to contribute to the training database
+3. Contains logical contradictions or unsupported claims
+4. Is too vague or generic to be actionable
+5. Is obviously unhelpful or time-wasting content
+6. Contains logical fallacies or mathematically unsound reasoning
+7. Presents claims as proven without proper mathematical justification
+
+Ask yourself: "Does adding this submission to our knowledge base make us more capable of solving the user's mathematical prompt than we were without it?"
+
+Output your decision ONLY as JSON in this exact format:
+{
+  "decision": "accept or reject",
+  "reasoning": "Detailed explanation of your decision",
+  "summary": "Brief summary for feedback, only write this summary if the solution is rejected (max 750 chars)"
+}"""
+```
+
+### Assembly in `build_validator_prompt()` (NO CHANGES TO THIS FUNCTION)
+
+```python
+# Parts assembled in order:
+1. get_validator_system_prompt()        
+2. "\n---\n"
+3. get_validator_json_schema()          
+4. "\n---\n"
+5. f"USER PROMPT:\n{user_prompt}"       # ALWAYS direct injected
+6. "\n---\n"
+7. f"SUBMISSION TO VALIDATE:\n{submission_content}"  # Direct if fits
+8. "\n---\n"
+9. context                              # Direct-injected context (shared training, user files)
+10. if rag_evidence: "\n---\nEXISTING KNOWLEDGE BASE (Retrieved):\n{rag_evidence}"
+11. "\n---\n"
+12. "Evaluate this submission and provide your decision as JSON:"
+```
+
+---
+
+## 1A. AGGREGATOR CLEANUP REVIEW
+
+**File:** `backend/aggregator/prompts/validator_prompts.py`
+
+**Purpose:** Every 7 accepted submissions, the validator performs a cleanup review of the existing database to identify if any previously accepted submission should be removed (due to redundancy, contradictions, or other validation rule violations). Maximum 1 removal per cycle.
+
+### Complete Prompt Structure
+
+**Function:** `get_cleanup_review_system_prompt()`
+
+```python
+def get_cleanup_review_system_prompt() -> str:
+    return """You are a validation agent performing a quality maintenance review of an already-approved knowledge base.
+
+YOUR TASK:
+Review all currently accepted submissions in the knowledge base and determine if ANY ONE submission should be REMOVED because it now violates the original validation criteria.
+
+Context:
+- This is an already-approved database - all submissions passed initial validation
+- You are performing a periodic cleanup to maintain database quality
+- As the database grows, some submissions may become redundant with newer, better submissions
+- You may identify at most one submission for removal (or none)
+- It is perfectly acceptable to find no submissions needing removal
+
+REASONS FOR REMOVAL - A submission should be removed if it:
+1. Is now REDUNDANT with other accepted submissions (content is fully covered by other submissions)
+2. CONTRADICTS other accepted submissions (logical inconsistencies discovered)
+3. Contains information that is now SUPERSEDED by better, more complete submissions
+4. Was MARGINALLY useful initially but provides no unique value given the current database state
+5. Contains claims that CONFLICT with established mathematical principles evident in other submissions
+
+REASONS TO KEEP - A submission should be kept if it:
+1. Provides ANY unique information not covered elsewhere
+2. Offers a different perspective or approach even if related to other content
+3. Contains specific mathematical details, proofs, or techniques
+4. Contributes to solution diversity in any meaningful way
+
+CONSERVATIVE APPROACH:
+- When in doubt, DO NOT recommend removal
+- Only recommend removal if you are certain the database would be better without the submission
+- A smaller, higher-quality database is better than a large, redundant one
+
+Selection Rule:
+When multiple submissions are redundant with each other, select the weakest one for removal - the one that provides the least unique value. Never remove a more complete submission in favor of keeping a less complete one.
+
+Output your decision ONLY as JSON in this exact format:
+{
+  "should_remove": true or false,
+  "submission_number": number of the submission to remove (or null if should_remove is false),
+  "reasoning": "Detailed explanation of why this submission should be removed OR why no removal is needed"
+}"""
+```
+
+### JSON Schema
+
+**Function:** `get_cleanup_review_json_schema()`
+
+```
+REQUIRED JSON FORMAT:
+{
+  "should_remove": true OR false,
+  "submission_number": integer (the submission # to remove) OR null (if should_remove is false),
+  "reasoning": "string - detailed explanation of your decision"
+}
+```
+
+### Assembly in `build_cleanup_review_prompt()`
+
+```python
+# Parts assembled in order:
+1. get_cleanup_review_system_prompt()
+2. "\n---\n"
+3. get_cleanup_review_json_schema()
+4. "\n---\n"
+5. f"USER PROMPT (the goal this database is solving):\n{user_prompt}"  # ALWAYS direct injected
+6. "\n---\n"
+7. f"CURRENT ACCEPTED SUBMISSIONS DATABASE:\n{all_submissions_formatted}"  # All submissions, or note if RAGed
+8. if context: "\n---\nUSER PROVIDED FILES:\n{context}"
+9. if rag_evidence: "\n---\nADDITIONAL CONTEXT (Retrieved):\n{rag_evidence}"  # Used when database too large
+10. "\n---\n"
+11. "Review the database and provide your cleanup decision as JSON:"
+```
+
+### Context Handling for Large Databases
+
+The cleanup review uses `context_allocator.allocate_cleanup_review_context()` which never skips due to size:
+
+1. **Try direct injection first:** If all submissions fit within context window, direct inject them
+2. **Use RAG if too large:** If submissions exceed context window, use RAG retrieval to get relevant chunks
+3. **Always proceed:** Cleanup review always runs, using whatever context method is needed
+
+**Context Allocation Method:** `backend/aggregator/core/context_allocator.py` → `allocate_cleanup_review_context()`
+
+This method returns:
+- `direct`: Direct-injected content (if it fits)
+- `rag_context`: RAG-retrieved content (if direct injection was too large)
+- `submissions_ragged`: Boolean indicating if RAG was used for submissions
+
+---
+
+## 1B. AGGREGATOR REMOVAL VALIDATION
+
+**File:** `backend/aggregator/prompts/validator_prompts.py`
+
+**Purpose:** When a cleanup review proposes a removal, the validator must validate its own removal decision before execution. This is a self-check to prevent erroneous removals.
+
+**Note:** Removal validation uses RAG when the database is too large for direct injection. It never skips or rejects removal due to prompt size.
+
+### Complete Prompt Structure
+
+**Function:** `get_removal_validation_system_prompt()`
+
+```python
+def get_removal_validation_system_prompt() -> str:
+    return """You are a validation agent reviewing a PROPOSED REMOVAL from the knowledge base.
+
+YOUR TASK:
+A cleanup review has proposed removing a specific submission from the database. You must validate whether this removal should proceed.
+
+Context:
+- Another validation pass has already identified this submission as potentially removable
+- You are the final check before the removal is executed
+- This is a conservative process - only approve removal if clearly justified
+
+APPROVE REMOVAL (decision: "accept") if:
+1. The submission is genuinely redundant with other submissions
+2. The reasoning for removal is sound and well-justified
+3. The database would be objectively better without this submission
+4. The unique value claimed by the submission is truly covered elsewhere
+
+REJECT REMOVAL (decision: "reject") if:
+1. The submission provides ANY unique value not covered elsewhere
+2. The reasoning for removal is weak or unconvincing
+3. There is ANY doubt about whether the content is truly redundant
+4. Removing would reduce solution diversity or coverage
+
+CONSERVATIVE DEFAULT:
+- If uncertain, REJECT the removal (keep the submission)
+- The burden of proof is on REMOVAL, not on keeping
+
+Output your decision ONLY as JSON in this exact format:
+{
+  "decision": "accept" or "reject",
+  "reasoning": "Detailed explanation of why removal should or should not proceed"
+}"""
+```
+
+### JSON Schema
+
+**Function:** `get_removal_validation_json_schema()`
+
+```
+REQUIRED JSON FORMAT:
+{
+  "decision": "accept" OR "reject",
+  "reasoning": "string - detailed explanation of your validation decision"
+}
+```
+
+### Assembly in `build_removal_validation_prompt()`
+
+```python
+# Parts assembled in order:
+1. get_removal_validation_system_prompt()
+2. "\n---\n"
+3. get_removal_validation_json_schema()
+4. "\n---\n"
+5. f"USER PROMPT (the goal this database is solving):\n{user_prompt}"  # ALWAYS direct injected
+6. "\n---\n"
+7. f"SUBMISSION PROPOSED FOR REMOVAL (#{submission_number}):\n{submission_content}"
+8. "\n---\n"
+9. f"REASONING FOR PROPOSED REMOVAL:\n{removal_reasoning}"
+10. "\n---\n"
+11. f"FULL DATABASE (for context):\n{all_submissions_formatted}"
+12. "\n---\n"
+13. "Validate whether this removal should proceed and provide your decision as JSON:"
+```
+
+---
+
+## 1C. AGGREGATOR VALIDATOR (BATCH - 2 SUBMISSIONS)
+
+**File:** `backend/aggregator/prompts/validator_prompts.py`
+
+**Purpose:** When the queue has 2 submissions to validate, the validator processes them simultaneously with independent assessment and intra-batch redundancy prevention.
+
+### Complete Prompt Structure
+
+**Function:** `get_validator_dual_system_prompt()`
+
+```python
+def get_validator_dual_system_prompt() -> str:
+    return """You are a validation agent in an AI cluster. Your role is to evaluate TWO mathematical submissions simultaneously and decide whether each should be added to the shared knowledge base.
+
+YOUR TASK:
+Evaluate EACH submission INDEPENDENTLY to determine if it would make a valuable cumulative addition to the shared knowledge base.
+
+Independent Assessment:
+For each submission, ask: "Does this submission increase potential solution availability or provide valuable constraints, considering only the existing database (not the other submission in this batch)?"
+
+Essentially, you are evaluating whether the training database becomes more useful toward finding mathematical solutions with each submission added than it was without it.
+
+EVALUATION CRITERIA (Apply to EACH submission independently):
+- Does the submission add genuinely new information or perspectives beyond what is already accepted?
+- Does the submission connect existing mathematical concepts in novel ways?
+- Does the submission provide concrete methods, theorems, proofs, or mathematical techniques?
+- Is the submission redundant with current accepted submissions, user provided information, or common mathematical knowledge?
+- Is the submission obviously unhelpful or time-wasting content?
+- Is the submission grounded in established mathematical principles and rigorous logic?
+- Does the submission avoid unfounded claims or logical fallacies?
+
+VALIDATION DECISION RULES (for each submission):
+A submission should be ACCEPTED if it:
+1. Increases potential solution availability in a significant way, OR
+2. Provides valuable solution space constraints that narrow where to search, OR
+3. Offers novel mathematical insights not present in existing accepted submissions, OR
+4. Presents rigorous mathematical arguments based on established principles
+
+A submission should be REJECTED if it:
+1. Is redundant with the existing accepted submissions
+2. Contains trivial or common mathematical knowledge with nothing novel
+3. Contains logical contradictions or unsupported claims
+4. Is too vague or generic to be actionable
+5. Contains logical fallacies or mathematically unsound reasoning
+
+Intra-Batch Redundancy Prevention:
+You must make two separate, independent decisions first - one for each submission.
+
+STEP 1: Evaluate submission 1 independently against the existing database. Make your accept/reject decision.
+STEP 2: Evaluate submission 2 independently against the existing database. Make your accept/reject decision.
+
+STEP 3: Apply redundancy check only if you independently decided to accept both:
+- If you independently decided to accept submission 1 AND independently decided to accept submission 2:
+  - Check if they cover similar ground or would add redundant information
+  - If redundant: Keep only the stronger/more complete one, change the weaker to "reject"
+  - The rejection reason should state: "Redundant with co-submitted submission X which is stronger/more complete"
+- If you independently decided to accept only one or reject both: No redundancy check needed
+
+Note: Each submission gets its own independent decision. Redundancy checking is a tie-breaker between two independently-accepted submissions, not a reason to batch-process decisions.
+
+DECISION PROCESS (in order):
+1. Independently assess submission 1 → accept or reject
+2. Independently assess submission 2 → accept or reject  
+3. If both accepted AND redundant → keep stronger, reject weaker
+4. Otherwise → keep your independent decisions
+
+Output your decisions ONLY as JSON in this exact format:
+{
+  "decisions": [
+    {
+      "submission_number": 1,
+      "decision": "accept or reject",
+      "reasoning": "Detailed explanation of your decision for submission 1",
+      "summary": "Brief summary for feedback (max 750 chars, only if rejected)"
+    },
+    {
+      "submission_number": 2,
+      "decision": "accept or reject",
+      "reasoning": "Detailed explanation of your decision for submission 2",
+      "summary": "Brief summary for feedback (max 750 chars, only if rejected)"
+    }
+  ]
+}
+"""
+```
+
+### JSON Schema
+
+**Function:** `get_validator_dual_json_schema()`
+
+```
+REQUIRED JSON FORMAT:
+{
+  "decisions": [
+    {
+      "submission_number": 1,
+      "decision": "accept" OR "reject",
+      "reasoning": "string - detailed explanation of your decision",
+      "summary": "string - brief summary (max 750 chars, used for rejection feedback)"
+    },
+    {
+      "submission_number": 2,
+      "decision": "accept" OR "reject",
+      "reasoning": "string - detailed explanation of your decision",
+      "summary": "string - brief summary (max 750 chars, used for rejection feedback)"
+    }
+  ]
+}
+
+Example (Accept Both - Non-redundant):
+{
+  "decisions": [
+    {
+      "submission_number": 1,
+      "decision": "accept",
+      "reasoning": "Submission 1 provides a novel approach to modular arithmetic proofs not in existing database.",
+      "summary": ""
+    },
+    {
+      "submission_number": 2,
+      "decision": "accept",
+      "reasoning": "Submission 2 offers a complementary technique using continued fractions. Not redundant with submission 1.",
+      "summary": ""
+    }
+  ]
+}
+
+Example (Accept One - Redundancy):
+{
+  "decisions": [
+    {
+      "submission_number": 1,
+      "decision": "accept",
+      "reasoning": "Submission 1 provides a comprehensive treatment of the Lindemann-Weierstrass theorem with rigorous proofs.",
+      "summary": ""
+    },
+    {
+      "submission_number": 2,
+      "decision": "reject",
+      "reasoning": "While independently valuable, submission 2 covers the same Lindemann-Weierstrass material as submission 1 but with less rigor. Accepting only submission 1 to prevent redundancy.",
+      "summary": "Redundant with co-submitted submission 1 which provides more rigorous coverage."
+    }
+  ]
+}
+```
+
+### Assembly in `build_validator_dual_prompt()`
+
+```python
+# Parts assembled in order:
+1. get_validator_dual_system_prompt()
+2. "\n---\n"
+3. get_validator_dual_json_schema()
+4. "\n---\n"
+5. f"USER PROMPT:\n{user_prompt}"  # ALWAYS direct injected
+6. "\n---\n"
+7. f"SUBMISSION 1 TO VALIDATE:\n{submission_contents[0]}"
+8. "\n---\n"
+9. f"SUBMISSION 2 TO VALIDATE:\n{submission_contents[1]}"
+10. "\n---\n"
+11. context  # Direct-injected context (shared training, user files)
+12. if rag_evidence: "\n---\nEXISTING KNOWLEDGE BASE (Retrieved):\n{rag_evidence}"
+13. "\n---\n"
+14. "Evaluate BOTH submissions and provide your decisions as JSON:"
+```
+
+---
+
+## 1D. AGGREGATOR VALIDATOR (BATCH - 3 SUBMISSIONS)
+
+**File:** `backend/aggregator/prompts/validator_prompts.py`
+
+**Purpose:** When the queue has 3 submissions to validate, the validator processes them simultaneously with independent assessment and all-pairs redundancy checking.
+
+### Complete Prompt Structure
+
+**Function:** `get_validator_triple_system_prompt()`
+
+```python
+def get_validator_triple_system_prompt() -> str:
+    return """You are a validation agent in an AI cluster. Your role is to evaluate THREE mathematical submissions simultaneously and decide whether each should be added to the shared knowledge base.
+
+YOUR TASK:
+Evaluate EACH submission INDEPENDENTLY to determine if it would make a valuable cumulative addition to the shared knowledge base.
+
+Independent Assessment:
+For each of the three submissions, ask: "Does this submission increase potential solution availability or provide valuable constraints, considering only the existing database (not the other submissions in this batch)?"
+
+Essentially, you are evaluating whether the training database becomes more useful toward finding mathematical solutions with each submission added than it was without it.
+
+EVALUATION CRITERIA (Apply to EACH submission independently):
+- Does the submission add genuinely new information or perspectives beyond what is already accepted?
+- Does the submission connect existing mathematical concepts in novel ways?
+- Does the submission provide concrete methods, theorems, proofs, or mathematical techniques?
+- Is the submission redundant with current accepted submissions, user provided information, or common mathematical knowledge?
+- Is the submission obviously unhelpful or time-wasting content?
+- Is the submission grounded in established mathematical principles and rigorous logic?
+- Does the submission avoid unfounded claims or logical fallacies?
+
+VALIDATION DECISION RULES (for each submission):
+A submission should be ACCEPTED if it:
+1. Increases potential solution availability in a significant way, OR
+2. Provides valuable solution space constraints that narrow where to search, OR
+3. Offers novel mathematical insights not present in existing accepted submissions, OR
+4. Presents rigorous mathematical arguments based on established principles
+
+A submission should be REJECTED if it:
+1. Is redundant with the existing accepted submissions
+2. Contains trivial or common mathematical knowledge with nothing novel
+3. Contains logical contradictions or unsupported claims
+4. Is too vague or generic to be actionable
+5. Contains logical fallacies or mathematically unsound reasoning
+
+Intra-Batch Redundancy Prevention:
+You must make three separate, independent decisions first - one for each submission.
+
+STEP 1: Evaluate submission 1 independently against the existing database. Make your accept/reject decision.
+STEP 2: Evaluate submission 2 independently against the existing database. Make your accept/reject decision.
+STEP 3: Evaluate submission 3 independently against the existing database. Make your accept/reject decision.
+
+STEP 4: Apply redundancy check only among submissions you independently decided to accept:
+- If you independently decided to accept multiple submissions (2 or 3):
+  - Check all pairs for redundancy: (1,2), (1,3), (2,3)
+  - If any accepted submissions are redundant with each other, keep only the strongest and change the others to "reject"
+  - Example: If you accepted 1, 2, 3 independently but 1 and 3 cover similar ground:
+    - Keep 2 (unique)
+    - Keep whichever of 1 or 3 is stronger
+    - Change the weaker of 1 or 3 to "reject" with reason: "Redundant with co-submitted submission"
+- If you independently decided to accept only one or reject all: No redundancy check needed
+
+Note: Each submission gets its own independent decision. Redundancy checking is a tie-breaker among independently-accepted submissions, not a reason to batch-process decisions.
+
+DECISION PROCESS (in order):
+1. Independently assess submission 1 → accept or reject
+2. Independently assess submission 2 → accept or reject
+3. Independently assess submission 3 → accept or reject
+4. If multiple accepted AND any pair redundant → keep strongest, reject weaker(s)
+5. Otherwise → keep your independent decisions
+
+FINAL ACCEPTANCE SET MUST BE:
+1. Each accepted submission is independently valuable against the existing database
+2. NO redundancy exists between ANY accepted submissions
+3. The strongest non-redundant combination is chosen
+
+Output your decisions ONLY as JSON in this exact format:
+{
+  "decisions": [
+    {
+      "submission_number": 1,
+      "decision": "accept or reject",
+      "reasoning": "Detailed explanation of your decision for submission 1",
+      "summary": "Brief summary for feedback (max 750 chars, only if rejected)"
+    },
+    {
+      "submission_number": 2,
+      "decision": "accept or reject",
+      "reasoning": "Detailed explanation of your decision for submission 2",
+      "summary": "Brief summary for feedback (max 750 chars, only if rejected)"
+    },
+    {
+      "submission_number": 3,
+      "decision": "accept or reject",
+      "reasoning": "Detailed explanation of your decision for submission 3",
+      "summary": "Brief summary for feedback (max 750 chars, only if rejected)"
+    }
+  ]
+}
+"""
+```
+
+### JSON Schema
+
+**Function:** `get_validator_triple_json_schema()`
+
+```
+REQUIRED JSON FORMAT:
+{
+  "decisions": [
+    {
+      "submission_number": 1,
+      "decision": "accept" OR "reject",
+      "reasoning": "string - detailed explanation of your decision",
+      "summary": "string - brief summary (max 750 chars, used for rejection feedback)"
+    },
+    {
+      "submission_number": 2,
+      "decision": "accept" OR "reject",
+      "reasoning": "string - detailed explanation of your decision",
+      "summary": "string - brief summary (max 750 chars, used for rejection feedback)"
+    },
+    {
+      "submission_number": 3,
+      "decision": "accept" OR "reject",
+      "reasoning": "string - detailed explanation of your decision",
+      "summary": "string - brief summary (max 750 chars, used for rejection feedback)"
+    }
+  ]
+}
+
+Example (Mixed Decisions with Redundancy Handling):
+{
+  "decisions": [
+    {
+      "submission_number": 1,
+      "decision": "accept",
+      "reasoning": "Submission 1 provides a comprehensive proof of the irrationality of sqrt(2) using a novel geometric approach not in existing database.",
+      "summary": ""
+    },
+    {
+      "submission_number": 2,
+      "decision": "reject",
+      "reasoning": "Submission 2 also addresses sqrt(2) irrationality but uses the standard algebraic proof which is less novel than submission 1's approach. Rejecting to prevent redundancy with submission 1.",
+      "summary": "Redundant with co-submitted submission 1 which provides a more novel approach."
+    },
+    {
+      "submission_number": 3,
+      "decision": "accept",
+      "reasoning": "Submission 3 explores continued fraction representations - completely different topic from submissions 1 and 2. Adds unique value.",
+      "summary": ""
+    }
+  ]
+}
+
+Example (Reject All):
+{
+  "decisions": [
+    {
+      "submission_number": 1,
+      "decision": "reject",
+      "reasoning": "Submission 1 restates basic definitions already in accepted submission #5.",
+      "summary": "Redundant with existing submission #5."
+    },
+    {
+      "submission_number": 2,
+      "decision": "reject",
+      "reasoning": "Submission 2 contains vague claims without mathematical rigor.",
+      "summary": "Too vague and lacks mathematical rigor."
+    },
+    {
+      "submission_number": 3,
+      "decision": "reject",
+      "reasoning": "Submission 3 contains a logical fallacy in its central argument.",
+      "summary": "Contains logical fallacy - invalid proof structure."
+    }
+  ]
+}
+```
+
+### Assembly in `build_validator_triple_prompt()`
+
+```python
+# Parts assembled in order:
+1. get_validator_triple_system_prompt()
+2. "\n---\n"
+3. get_validator_triple_json_schema()
+4. "\n---\n"
+5. f"USER PROMPT:\n{user_prompt}"  # ALWAYS direct injected
+6. "\n---\n"
+7. f"SUBMISSION 1 TO VALIDATE:\n{submission_contents[0]}"
+8. "\n---\n"
+9. f"SUBMISSION 2 TO VALIDATE:\n{submission_contents[1]}"
+10. "\n---\n"
+11. f"SUBMISSION 3 TO VALIDATE:\n{submission_contents[2]}"
+12. "\n---\n"
+13. context  # Direct-injected context (shared training, user files)
+14. if rag_evidence: "\n---\nEXISTING KNOWLEDGE BASE (Retrieved):\n{rag_evidence}"
+15. "\n---\n"
+16. "Evaluate ALL THREE submissions and provide your decisions as JSON:"
+```
+
+---
+
+## 2. AGGREGATOR SUBMITTER
+
+**File:** `backend/aggregator/prompts/submitter_prompts.py`
+
+### Complete Prompt Structure
+
+**Function:** `get_submitter_system_prompt()`
+
+```python
+def get_submitter_system_prompt() -> str:
+    return """You are a mathematical submitter in an AI cluster working to solve complex mathematical problems. Your role is to:
+
+1. Analyze the user's prompt and provided context carefully
+2. Build upon the shared training database (accepted submissions from other agents)
+3. Learn from your rejection history to avoid repeating mistakes
+4. Generate novel, valuable mathematical insights that advance the solution
+
+YOUR TASK:
+Generate a novel mathematical insight that advances the user's goal.
+
+Focus on mathematical concepts, theorems, techniques, and proofs from your own internal training data that may provide an avenue towards solving or understanding the mathematical problem in the prompt.
+
+WHAT MAKES A VALUABLE SUBMISSION - Consider:
+- Does it add genuinely new information or perspectives beyond what is already in the training database?
+- Does it connect existing mathematical concepts in novel ways?
+- Does it provide concrete methods, theorems, proofs, or mathematical techniques?
+- Is it specific and actionable, not vague or generic?
+- Does it increase solution availability or narrow the search space?
+- Is it based on established mathematical principles and rigorous logic?
+
+Content Requirements:
+- All submissions must be rooted in sound mathematical reasoning - no unfounded claims or logical fallacies
+- Focus on mathematical concepts, theorems, and techniques you know are valid from your training data
+- Be specific and actionable, not vague or generic
+- Avoid redundancy with existing accepted submissions
+- Focus on increasing solution availability or narrowing the search space
+- Present rigorous mathematical arguments
+
+Your submission will be validated against these criteria:
+- Does it meaningfully advance the solution space?
+- Is it based on sound mathematical principles?
+- Does it avoid contradictions?
+- Is it non-redundant with existing knowledge?
+- Is it mathematically rigorous?
+
+Output your response ONLY as JSON in this exact format:
+{
+  "submission": "Your detailed mathematical submission describing concepts, theorems, proofs, and approaches based on established mathematical principles.",
+  "reasoning": "Brief explanation of why this submission is valuable"
+}"""
+```
+
+### Assembly in `build_submitter_prompt()` 
+
+```python
+# Parts assembled in order:
+1. get_submitter_system_prompt()        # Enhanced system prompt above
+2. "\n---\n"
+3. get_submitter_json_schema()          
+4. "\n---\n"
+5. f"USER PROMPT:\n{user_prompt}"       # ALWAYS direct injected
+6. "\n---\n"
+7. context                              # Direct: shared training, local training, rejections, user files
+8. if rag_evidence: "\n---\nRETRIEVED EVIDENCE:\n{rag_evidence}"
+9. "\n---\n"
+10. "Now generate your submission as JSON:"
+```
+
+---
+
+## 3. COMPILER VALIDATOR PROMPTS (SPLIT: OUTLINE VS DOCUMENT)
+
+**File:** `backend/compiler/validation/compiler_validator.py`
+
+**Architecture**: The validator uses separate prompt functions for outline validation vs document validation to provide mode-specific criteria and feedback.
+
+### 3A. OUTLINE VALIDATOR PROMPT
+
+**Function:** `_get_outline_validation_system_prompt(mode)` (modes: outline_create, outline_update)
+
+**Anchor Markers**: Outline files use a two-line anchor system:
+- Line 1: `[BRACKETED DESIGNATION THAT SHOWS END-OF-PAPER DESIGNATION MARK]` (references document's end marker)
+- Line 2: `[HARD CODED END-OF-OUTLINE MARK -- ALL OUTLINE CONTENT SHOULD BE ABOVE THIS LINE]` (outline's own end marker)
+
+**Required Section Structure**: Every outline MUST include these exact sections:
+
+| Section | Exact Name | Required | Position |
+|---------|-----------|----------|----------|
+| Abstract | "Abstract" | YES | First in outline/paper |
+| Introduction | "Introduction" or "I. Introduction" | YES | After Abstract |
+| Body | Flexible (II., III., etc.) | YES (at least 1) | Between Intro and Conclusion |
+| Conclusion | "Conclusion" or "N. Conclusion" | YES | Last content section |
+
+**Base prompt for OUTLINE modes:**
+
+```python
+base_prompt = """You are validating a mathematical document outline submission. Your role is to decide if this submission should be ACCEPTED or REJECTED.
+
+REQUIRED SECTION STRUCTURE (MANDATORY):
+Every outline MUST include these exact sections with these exact names in this exact order:
+1. **Abstract** - Must be named exactly "Abstract" (appears first)
+2. **Introduction** - Must be named exactly "Introduction" or "I. Introduction" (after Abstract)
+3. **Body Sections** - At least one body section (II, III, IV, etc.) between Introduction and Conclusion
+4. **Conclusion** - Must be named exactly "Conclusion" or "N. Conclusion" (always LAST content section)
+
+OUTLINE VALIDATION CRITERIA:
+1. SECTION_STRUCTURE: MUST include Abstract, Introduction, at least one Body section, and Conclusion with exact names
+2. SECTION_ORDER: Abstract → Introduction → Body sections → Conclusion (this exact order)
+3. COHERENCE: Logically structured with clear sections and subsections
+4. COMPLETENESS: Captures all relevant content from aggregator database in relation to what is relevant to the title set in the user prompt
+5. ALIGNMENT: Aligns with user's compiler-directing prompt goals
+6. COMPREHENSIVENESS: Provides sufficient detail to guide mathematical document construction
+7. MATHEMATICAL PROGRESSION: Body sections follow logical progression (definitions → main results → theorems → proofs)
+8. IN-TEXT CITATIONS ONLY: Must NOT include a separate References or Citations section
+9. ANCHOR PRESERVATION: Must not attempt to add content after the end-of-outline anchor markers
+10. LOGICAL GROUNDING: Outline must reference actual content from aggregator database based on sound mathematical principles, not unfounded claims
+11. NO PLACEHOLDER TEXT: Must not contain any placeholder markers (though any that appear will be silently stripped before validation). Placeholders are structural markers that indicate where sections WILL BE written - they should not be intentionally included in submission content.
+
+YOUR TASK:
+Verify the submission meets ALL criteria above. Accept only if ALL criteria pass. Reject if ANY criterion fails.
+
+REJECTION CATEGORIES (provide specific feedback):
+- MISSING_REQUIRED_SECTION: Missing Abstract, Introduction, or Conclusion (must have all three with exact names)
+- INCORRECT_SECTION_ORDER: Sections are out of order (must be: Abstract → Introduction → Body → Conclusion)
+- INCORRECT_SECTION_NAME: Section names don't match exactly (e.g., "Summary" instead of "Conclusion", "Overview" instead of "Introduction")
+- STRUCTURAL: Body sections not in logical mathematical progression order
+- INCOMPLETENESS: Missing critical content from aggregator database that's relevant to document title
+- MISALIGNMENT: Doesn't serve user's compiler-directing prompt goals
+- INSUFFICIENT_DETAIL: Lacks necessary granularity to guide mathematical document construction
+- FORMAT_VIOLATION: Includes separate References/Citations section (NOT allowed)
+- ANCHOR_VIOLATION: Content placed after outline anchor markers
+
+Section Name Validation:
+- Check for exact presence of "Abstract" (case-insensitive)
+- Check for exact presence of "Introduction" (case-insensitive, with or without "I." prefix)
+- Check for exact presence of "Conclusion" (case-insensitive, with or without Roman numeral prefix)
+- Reject if any of these three required sections is missing or incorrectly named
+"""
+```
+
+**Mode-specific additions:**
+
+**outline_create mode:**
+```python
+"""MODE-SPECIFIC CRITERIA (Outline Creation):
+- Outline MUST include: Abstract, Introduction, at least one Body section, Conclusion
+- Section names MUST match exactly: "Abstract", "Introduction", "Conclusion"
+- Outline captures all relevant unique content from aggregator database
+- Outline provides clear structure for mathematical document construction
+- Outline aligns with user's compiler-directing prompt
+- Body sections follow logical mathematical progression
+- Outline is comprehensive enough to guide entire exposition
+
+ACCEPT if: All required sections present with correct names + all other criteria met
+REJECT if: Missing Abstract/Introduction/Conclusion, incorrect section names, or any other criterion fails"""
+```
+
+**outline_update mode:**
+```python
+"""MODE-SPECIFIC CRITERIA (Outline Update):
+- Update MUST NOT remove or rename Abstract, Introduction, or Conclusion sections
+- Update is necessary (missing content or better structure needed)
+- Update follows the existing document's already-constructed format and section ordering
+- Update is STRICTLY ADDITIVE ONLY - only adds new sections, never modifies or removes existing structure
+- New body sections MUST be inserted between Introduction and Conclusion
+- Update respects the current document's construction order
+- Update maintains logical progression consistency with existing outline structure
+- Update doesn't require modification of already-constructed document content
+- Changes are substantive, not cosmetic
+- New sections maintain mathematical document ordering
+- Update does NOT add a References or Citations section
+
+Additivity Check:
+- Reject if update would rename Abstract, Introduction, or Conclusion
+- Reject if update would insert content after Conclusion (except appendix)
+- Reject if update would require editing/moving/renaming already-written document sections
+- Reject if update disrupts the flow of existing document content
+- Reject if update adds a separate References or Citations section
+- Accept only if new outline sections can be added without touching what's already written
+
+ACCEPT if: All general criteria + mode-specific criteria met AND update is purely additive
+REJECT if: Update is unnecessary, harmful, breaks required section structure, or requires document restructuring"""
+```
+
+### 3B. DOCUMENT VALIDATOR PROMPT
+
+**Function:** `_get_paper_validation_system_prompt(mode)` (modes: construction, review, rigor)
+
+**Base prompt for DOCUMENT modes (construction, review, rigor):**
+
+```python
+base_prompt = """You are validating a mathematical document construction submission. Your role is to decide if this submission should be ACCEPTED or REJECTED.
+
+Decision Rule:
+If any single criterion below fails, reject the submission. All criteria must pass for acceptance.
+
+DOCUMENT VALIDATION CRITERIA:
+1. COHERENCE: Grammatically correct AND maintains holistic document coherence
+2. MATHEMATICAL RIGOR: The submission's content is mathematically correct, logically sound, rooted in established mathematical principles (NO unfounded claims or logical fallacies), and is rigorous enough for a mathematical exposition
+3. EXACT STRING MATCH VALIDITY: For replace/insert_after/delete operations, the old_string MUST exist exactly (verbatim) and uniquely in the document. For full_content, no old_string verification needed.
+4. PLACEMENT COHERENCE: Content flows naturally at the specified location, adds imperative content that efficiently contributes towards completion of the document as per the outline, and the content is not overly verbose given the implied scope of the titled document. The content addition adheres to the outline structure for the document.
+5. NON-REDUNDANCY: Doesn't repeat existing document content or duplicate any existing sections of the document. The addition strictly adds to the document so the addition does not deviate the document structure from the outline.
+6. NO SECTION DUPLICATION: Must not create a section header (e.g., "III. Main Results", "IV. Proofs") OR subsection header (e.g., "V.E.", "IX.C.") that already exists in the CURRENT PAPER/DOCUMENT (actual written content, NOT the outline template). Check BOTH the submission content AND the current document for duplicate section headers and subsection headers.
+7. NO FORWARD-LOOKING PREVIEWS: Must not contain forward-looking structural previews (e.g., 'Section II will...', 'We will examine...', organized-as-follows lists) UNLESS this is the introduction/first section where a brief roadmap is allowed
+8. IN-TEXT CITATIONS ONLY: Must use in-text citations (if any) and NOT create a separate References or Citations section
+9. ANCHOR PRESERVATION: Must not attempt to add content after the end-of-document anchor marker
+10. LOGICAL GROUNDING: Must not contain unfounded claims or logical fallacies. All claims must be grounded in established mathematical principles and sound reasoning.
+11. NO PLACEHOLDER TEXT: Must not contain any placeholder markers (though any that appear will be silently stripped before validation). Placeholders are structural markers that indicate where sections WILL BE written - they should not be intentionally included in submission content.
+
+YOUR TASK:
+Verify the submission meets ALL criteria above. If even ONE criterion fails, reject the submission.
+
+Section Duplication Check:
+- The current outline is a template showing what sections should be written - it is not actual content
+- The current paper/document is the actual written content
+- Before accepting, scan only the current paper/document (not the outline) for section headers (e.g., "I.", "II.", "III.", "IV.", "V.") and subsection headers (e.g., "V.E.", "IX.C.", "A.", "B.")
+- Check if the submission content contains any section or subsection header that already exists in the current paper/document (actual written content)
+- Do not reject just because a section header appears in the outline - the outline is a template, not content
+- Reject only if duplicate section headers exist in the actual current paper/document
+- Accept if the submission is filling in a section from the outline that hasn't been written yet
+- Accept if the submission creates new sections/subsections not present in current document's actual content, or adds content to existing sections without creating duplicate headers
+
+Exact String Matching Validation:
+- The submission uses operation/old_string/new_string for edit operations
+- For "replace": Verify old_string exists exactly (verbatim) in the current document
+- For "insert_after": Verify old_string exists exactly in the current document
+- For "delete": Verify old_string exists exactly in the current document
+- For "full_content": No old_string verification needed
+- Reject if old_string is not found or appears multiple times (not unique)
+- Content must flow coherently at the specified location
+- Must follow outline structure (sections in logical mathematical progression order)
+
+Forward-Looking Preview Detection:
+- Reject if content contains: "Section X will...", "organized as follows:", "we will discuss...", "next we examine...", bullet lists describing future sections
+- Brief roadmap acceptable only in introduction/first section; reject everywhere else
+- Content should be actual mathematical prose (definitions, theorems, proofs, analysis), not structural previews
+
+Citation Format Check (if applicable):
+- Reject if content creates a "References" or "Citations" section header
+- Reject if content appears to be a bibliography or reference list
+- In-text citations (if present) should be integrated within the narrative
+
+Mathematical Rigor Check:
+- Reject if content contains unfounded claims or logical fallacies
+- Accept only content rooted in established mathematical principles and sound reasoning
+"""
+```
+
+**Mode-specific additions (construction example):**
+
+```python
+"construction": """
+MODE-SPECIFIC CRITERIA (Document Construction):
+- Outline Adherence: Follows the outline structure appropriately
+- Logical Flow: Builds logically from existing document content
+- Evidence Integration: Captures relevant aggregator database content
+- Non-Repetition: Doesn't repeat existing document sections
+- Section Uniqueness: Doesn't create section headers that already exist in current document
+- Exact String Match Validity: old_string exists verbatim and uniquely in the document (if applicable)
+- Content Check: No forward-looking structural previews outside introduction
+- Mathematical Accuracy: Content is based on established mathematical principles and sound reasoning
+
+VERIFICATION CHECKLIST:
+✓ Does it follow the current outline (the outline is the TEMPLATE, not actual content)?
+✓ Does it build coherently from what's already written in the ACTUAL DOCUMENT?
+✓ Does it integrate content from the aggregator database?
+✓ Does it avoid repeating existing content in the ACTUAL DOCUMENT?
+✓ Does it avoid creating duplicate section headers that exist in the CURRENT PAPER/DOCUMENT (NOT the outline template)?
+✓ For replace/insert_after/delete: Does the old_string exist exactly (verbatim) in the CURRENT DOCUMENT?
+✓ Does it avoid forward-looking structural language (unless introduction)?
+✓ Is the mathematical content based on established principles and sound reasoning?
+
+ACCEPT if: All general criteria + all mode-specific criteria met
+REJECT if: Any criterion fails (especially duplicate section/subsection headers or unsound mathematical claims)
+"""
+```
+
+### Assembly in `_build_validation_prompt()` 
+
+**Routing Logic**: The validator routes to the appropriate system prompt based on mode:
+- If mode in ["outline_create", "outline_update"]: uses `_get_outline_validation_system_prompt(mode)`
+- Otherwise (construction, review, rigor): uses `_get_paper_validation_system_prompt(mode)`
+
+```python
+# Parts assembled in order:
+1. system_prompt                         # Routed based on mode (outline vs document)
+2. "\n---\n"
+3. _get_validation_json_schema()        
+4. "\n---\n"
+5. f"USER COMPILER-DIRECTING PROMPT:\n{user_prompt}"  # ALWAYS direct
+6. "\n---\n"
+7. if current_outline: f"CURRENT OUTLINE:\n{current_outline}\n---\n"
+8. f"CURRENT DOCUMENT:\n{current_paper}\n---\n"  # Shows raw document text for exact string matching
+9. f"SUBMISSION TO VALIDATE:\nOperation: {operation}\nOld String: {old_string}\nNew String: {new_string}\nContent: {content}\nReasoning: {reasoning}\n"
+10. "\n---\n"
+11. "Now validate this submission (respond as JSON):"
+```
+
+**NOTE**: Validator verifies exact string matches. For replace/insert_after/delete operations, the validator checks that old_string exists verbatim and uniquely in the current document.
+
+---
+
+## 4. COMPILER-SUBMITTER CONSTRUCTION PROMPTS (PHASE-BASED)
+
+**File:** `backend/compiler/prompts/construction_prompts.py`
+
+### Phase-Based Paper Construction Architecture
+
+Paper construction uses explicit phase-based prompts with `section_complete` feedback.
+
+**Phase Order (strictly enforced):**
+1. **BODY** - All main content sections from the outline
+2. **CONCLUSION** - Summary of findings and implications
+3. **INTRODUCTION** - Preview of content (written after body so it can accurately describe what follows)
+4. **ABSTRACT** - Final summary (signals paper completion)
+
+### Out-of-Order Writing Rationale (Included in Construction Prompts)
+
+Each phase-specific construction prompt includes an explanation of WHY papers are written out of order. This explanation is included in the prompts themselves to help the AI understand and follow the correct sequence:
+
+**Why BODY First:**
+- Mathematical content can develop naturally and organically without being constrained by promises made in a pre-written introduction
+- If we wrote the introduction or abstract first, it would lock in what the body must contain before we've written it
+- The body establishes the actual mathematical content with full flexibility
+
+**Why CONCLUSION Second (before Introduction):**
+- Writing the conclusion now, before the introduction, ensures we summarize actual proven results rather than hypothetical content
+- The conclusion summarizes what was ACTUALLY written in the body sections
+
+**Why INTRODUCTION Third:**
+- Written AFTER body and conclusion, so it can accurately describe what the paper actually contains
+- The introduction will accurately describe both the body content AND the conclusion
+- Prevents forward-looking language that refers to content not yet written
+
+**Why ABSTRACT Last:**
+- Written as the final section to summarize the COMPLETE paper
+- Can only be accurate after all other content exists
+- Signals paper completion when validated
+
+**Prompt Content:**
+The actual prompt text included in each phase-specific construction prompt includes:
+```
+IMPORTANT - WHY WE WRITE PAPERS OUT OF ORDER:
+This paper is constructed OUT OF ORDER intentionally. The writing sequence is:
+1. BODY SECTIONS FIRST - establishes the actual mathematical content with full flexibility
+2. CONCLUSION second - summarizes what was actually proven in the body
+3. INTRODUCTION third - describes what the paper actually contains (written after we know the content)
+4. ABSTRACT last - summarizes the complete paper
+```
+
+**PHASE TRANSITION MECHANISM:**
+- Each phase uses a dedicated prompt function
+- Submitter explicitly sets `section_complete: true` when current phase is finished
+- Coordinator advances to next phase ONLY on explicit `section_complete` signal AND validates section exists
+- **Content validation enforced**: Before transitioning phases, coordinator verifies the required section header exists in paper using regex patterns (not just placeholders)
+- Prevents premature phase transitions when content wasn't actually written
+- Replaces unreliable regex-based detection of section headers
+
+### Section Placeholder System
+
+**Purpose:** Placeholders make it crystal clear to the AI where sections will be written and that they do NOT exist yet. This fixes the problem of models falsely claiming sections like Introduction are "already written" when they are not.
+
+**How It Works:**
+- When the first body section is accepted, the paper is initialized with placeholder markers for Conclusion, Introduction, and Abstract
+- Each placeholder clearly states what section goes there and when it will be written
+- When a non-body section (Conclusion/Introduction/Abstract) is validated and accepted, the corresponding placeholder is REPLACED with the actual content
+- Placeholders are visible to the AI in CURRENT DOCUMENT PROGRESS - the AI sees them explicitly
+
+**Placeholder Constants (defined in `backend/compiler/memory/paper_memory.py`):**
+```
+ABSTRACT_PLACEHOLDER = "[HARD CODED PLACEHOLDER FOR THE ABSTRACT SECTION - TO BE WRITTEN AFTER THE INTRODUCTION IS COMPLETE]"
+INTRO_PLACEHOLDER = "[HARD CODED PLACEHOLDER FOR INTRODUCTION SECTION - TO BE WRITTEN AFTER THE CONCLUSION SECTION IS COMPLETE]"
+CONCLUSION_PLACEHOLDER = "[HARD CODED PLACEHOLDER FOR THE CONCLUSION SECTION - TO BE WRITTEN AFTER THE BODY SECTION IS COMPLETE]"
+```
+
+**Note**: These placeholders are structural markers only. Submissions must never contain placeholder text.
+
+### System-Managed Markers Explanation (Included in Prompts)
+
+Construction and outline prompts include detailed explanations telling the AI about system-managed markers. This explanation is important because:
+- The AI sees placeholders in CURRENT DOCUMENT PROGRESS but did NOT create them
+- Without explanation, the AI might try to output these markers or misunderstand their purpose
+- The explanation prevents confusion about what exists vs. what doesn't
+
+**Prompt Content Explaining System-Managed Markers:**
+```
+SYSTEM-MANAGED MARKERS (NOT YOUR OUTPUT):
+
+The paper uses placeholder markers that the system adds automatically (you did not create these):
+
+**Section Placeholders** (show where sections will be written):
+- [HARD CODED PLACEHOLDER FOR THE ABSTRACT SECTION...] - Will be replaced when Abstract is written
+- [HARD CODED PLACEHOLDER FOR INTRODUCTION SECTION...] - Will be replaced when Introduction is written
+- [HARD CODED PLACEHOLDER FOR THE CONCLUSION SECTION...] - Will be replaced when Conclusion is written
+
+**Paper Anchor** (marks document boundary):
+- [HARD CODED END-OF-PAPER MARK -- ALL CONTENT SHOULD BE ABOVE THIS LINE]
+
+Distinctions:
+1. **Placeholders/anchors in CURRENT DOCUMENT PROGRESS**: These are SYSTEM-MANAGED. The code in paper_memory.py adds them automatically. You did NOT create them.
+
+2. **You must NEVER output these markers in YOUR SUBMISSIONS**: While the system will silently strip any placeholder markers that accidentally appear, they should never be included in your submissions. Focus on writing actual mathematical content.
+
+HOW PLACEHOLDERS WORK:
+- When you see a placeholder in CURRENT DOCUMENT PROGRESS, that section has NOT been written yet
+- When you write that section and it's validated, the system will REPLACE the placeholder with your content
+- If you see actual section content (not a placeholder), that section IS already written
+- Placeholders make it crystal clear what exists vs. what doesn't
+
+WHY THEY EXIST: They prevent AI confusion about whether sections like Introduction are "already written" when they aren't.
+```
+
+**Placeholder Stripping:**
+Submissions are automatically scanned for placeholder text before validation. Any placeholder markers found (e.g., `[HARD CODED PLACEHOLDER`, `[HARD CODED END-OF`) are silently stripped. This prevents placeholder text from interfering with validation while avoiding unnecessary rejection loops.
+
+**Initial Paper Structure (after first body section accepted):**
+```
+[PLACEHOLDER FOR THE ABSTRACT SECTION - TO BE WRITTEN AFTER THE INTRODUCTION IS COMPLETE]
+
+[PLACEHOLDER FOR INTRODUCTION SECTION - TO BE WRITTEN AFTER THE CONCLUSION SECTION IS COMPLETE]
+
+... body content ...
+
+[PLACEHOLDER FOR THE CONCLUSION SECTION - TO BE WRITTEN AFTER THE BODY SECTION IS COMPLETE]
+
+[HARD CODED END-OF-PAPER MARK -- ALL CONTENT SHOULD BE ABOVE THIS LINE]
+```
+
+**Placeholder Replacement Rules:**
+1. When Conclusion is accepted → `CONCLUSION_PLACEHOLDER` is replaced with actual Conclusion content
+2. When Introduction is accepted → `INTRO_PLACEHOLDER` is replaced with actual Introduction content
+3. When Abstract is accepted → `ABSTRACT_PLACEHOLDER` is replaced with actual Abstract content
+4. Each placeholder is replaced exactly ONCE with validated content
+5. Placeholders are replaced via exact string matching (old_string = placeholder, new_string = content)
+
+**Why This Fixes the "Section Already Exists" Bug:**
+- Previously, the AI would see body content + end-of-paper anchor and incorrectly conclude "the paper is complete"
+- Now the AI explicitly sees `[PLACEHOLDER FOR INTRODUCTION SECTION...]` which makes it impossible to claim the Introduction exists when it doesn't
+- The prompt instructions tell the AI: "If you see a placeholder, that section has NOT been written yet"
+
+**Placeholder Boundary Invariant:**
+The CONCLUSION_PLACEHOLDER acts as a hard boundary that body content cannot cross:
+- When `_apply_edit()` handles `insert_after` operations for body content:
+  1. Exact string matching finds the specified old_string
+  2. Checks if the insertion point would be after CONCLUSION_PLACEHOLDER
+  3. **AUTO-CORRECTION**: If the anchor is after the placeholder, automatically relocates insertion to just BEFORE the placeholder (prevents infinite rejection loops)
+  4. Inserts new_string at the correct position, ensuring content stays before the placeholder
+  5. Placeholders are treated as exact strings that can be matched and replaced
+- This ensures body sections always accumulate above the conclusion marker
+- The boundary is enforced in `compiler_coordinator.py` `_apply_edit()` method
+- Works identically for both manual (Part 2) and autonomous (Part 3) modes
+
+**Placeholder Resume Repair (Critical for Crash Recovery):**
+When the compiler resumes from an existing paper file, it checks if placeholders exist and adds them if missing:
+- **Problem**: Papers created before the placeholder system or from older code versions may not have placeholders
+- **Symptom**: "old_string not found in document" pre-validation failures when the model tries to use placeholder text as old_string
+- **Solution**: `paper_memory.ensure_placeholders_exist()` is called when resuming from an existing paper
+- **Behavior**:
+  1. Checks if ABSTRACT_PLACEHOLDER, INTRO_PLACEHOLDER, CONCLUSION_PLACEHOLDER, and PAPER_ANCHOR exist
+  2. If any are missing, extracts the body content and reconstructs the paper with all placeholders in correct positions
+  3. Logs: "Placeholders were missing and have been added to the paper"
+- **Implementation**: Called in `compiler_coordinator._main_workflow()` when `is_resuming_paper=True`
+- **Files**: `backend/compiler/memory/paper_memory.py` (ensure_placeholders_exist method), `backend/compiler/core/compiler_coordinator.py` (resume logic)
+
+### Phase-Specific Prompt Functions
+
+**Body Phase:** `get_body_construction_system_prompt()`
+- Writes all main content sections following the outline
+- Sets `section_complete: true` when ALL body sections are written
+- Then transitions to CONCLUSION phase
+
+**Conclusion Phase:** `get_conclusion_construction_system_prompt()`  
+- Must write the conclusion section content with `needs_construction: true`
+- Cannot respond with `needs_construction: false` - this phase requires writing content
+- Summarizes findings from completed body sections
+- Must set both `needs_construction: true` and `section_complete: true` when submitting conclusion content
+- Writing the conclusion completes the conclusion phase (single submission)
+- Then transitions to introduction phase
+
+**Introduction Phase:** `get_introduction_construction_system_prompt()`
+- Must write the introduction section content with `needs_construction: true`
+- Cannot respond with `needs_construction: false` - this phase requires writing content
+- Writes the introduction with roadmap (now knows actual content from body + conclusion)
+- Must set both `needs_construction: true` and `section_complete: true` when submitting introduction content
+- Writing the introduction completes the introduction phase (single submission)
+- Then transitions to abstract phase
+
+**Abstract Phase:** `get_abstract_construction_system_prompt()`
+- Must write the abstract section content with `needs_construction: true`
+- Cannot respond with `needs_construction: false` - this phase requires writing content
+- Writes the abstract as final summary of complete paper
+- Must always set both `needs_construction: true` and `section_complete: true` when submitting abstract content
+- Writing abstract completes the paper - there is no next step after abstract (this is the final phase)
+- Triggers paper completion workflow
+
+### JSON Schema (All Construction Phases)
+
+```
+REQUIRED JSON FORMAT:
+{
+  "needs_construction": true or false,
+  "content": "Your complete section/paragraph text (empty if needs_construction=false)",
+  "operation": "replace | insert_after | delete | full_content",
+  "old_string": "Exact text to find in document (empty for full_content or needs_construction=false)",
+  "new_string": "Replacement/insertion text (empty if needs_construction=false)",
+  "section_complete": true or false,
+  "reasoning": "Why construction is or isn't needed, and section completion status"
+}
+
+section_complete field:
+- Set to true only when the entire current phase is complete
+- For body phase: true when all body sections from outline are written
+- For conclusion phase: Must set needs_construction=true and provide content when marking complete
+- For introduction phase: Must set needs_construction=true and provide content when marking complete
+- For abstract phase: Must always set needs_construction=true and provide content (this is the final phase)
+- Setting section_complete=true triggers transition to next phase
+
+needs_construction requirements by phase:
+- **Body**: Can be false if all body sections written (no more content needed before conclusion)
+- **Conclusion**: Must be true - cannot complete this phase without writing the conclusion
+- **Introduction**: Must be true - cannot complete this phase without writing the introduction
+- **Abstract**: Must be true - cannot complete this phase without writing the abstract
+
+Invalid pattern (prohibited):
+needs_construction=false + section_complete=true + content="" = invalid for conclusion/intro/abstract phases
+
+Required pattern:
+needs_construction=true + section_complete=true + content="..." = required for conclusion/intro/abstract phases
+```
+
+### Example JSON Outputs
+
+**Body Phase - Still Working:**
+```json
+{
+  "needs_construction": true,
+  "content": "III. Main Results\n\nWe now present our central findings...",
+  "operation": "insert_after",
+  "old_string": "This completes the preliminaries. ∎",
+  "new_string": "III. Main Results\n\nWe now present our central findings...",
+  "section_complete": false,
+  "reasoning": "Writing Section III Main Results. More body sections remain from outline."
+}
+```
+
+**Body Phase - Complete:**
+```json
+{
+  "needs_construction": false,
+  "content": "",
+  "operation": "",
+  "old_string": "",
+  "new_string": "",
+  "section_complete": true,
+  "reasoning": "All body sections from the outline have been written. Ready to write Conclusion."
+}
+```
+
+**Conclusion Phase - Complete:**
+```json
+{
+  "needs_construction": true,
+  "content": "VI. Conclusion\n\nIn this paper, we have established...",
+  "operation": "replace",
+  "old_string": "[HARD CODED PLACEHOLDER FOR THE CONCLUSION SECTION - TO BE WRITTEN AFTER THE BODY SECTION IS COMPLETE]",
+  "new_string": "VI. Conclusion\n\nIn this paper, we have established...",
+  "section_complete": true,
+  "reasoning": "Conclusion section written. This completes the conclusion phase."
+}
+```
+
+**Abstract Phase - Paper Complete:**
+```json
+{
+  "needs_construction": true,
+  "content": "Abstract\n\nThis paper presents a rigorous analysis of...",
+  "operation": "replace",
+  "old_string": "[HARD CODED PLACEHOLDER FOR THE ABSTRACT SECTION - TO BE WRITTEN AFTER THE INTRODUCTION IS COMPLETE]",
+  "new_string": "Abstract\n\nThis paper presents a rigorous analysis of...",
+  "section_complete": true,
+  "reasoning": "Abstract written. Paper is now complete."
+}
+```
+
+### Assembly in `build_[phase]_construction_prompt()`
+
+Each phase has its own builder function:
+- `build_body_construction_prompt()`
+- `build_conclusion_construction_prompt()`
+- `build_introduction_construction_prompt()`
+- `build_abstract_construction_prompt()`
+
+```python
+# Common assembly order for all phase prompts:
+1. get_[phase]_construction_system_prompt()     # Phase-specific system prompt
+2. "\n---\n"
+3. get_[phase]_construction_json_schema()       # Phase-specific JSON schema
+4. "\n---\n"
+5. f"USER COMPILER-DIRECTING PROMPT:\n{user_prompt}"  # ALWAYS direct
+6. "\n---\n"
+7. f"CURRENT OUTLINE:\n{current_outline}"  # Direct injected (ALWAYS fully injected)
+8. "\n---\n"
+9. f"CURRENT DOCUMENT PROGRESS:\n{current_paper}"  # Direct injected (see note below)
+10. "\n---\n"
+11. f"AGGREGATOR DATABASE EVIDENCE:\n{rag_evidence}"  # RAG retrieved
+12. "\n---\n"
+13. "Now generate your construction submission as JSON:"
+```
+
+**Paper Context Injection Rules:**
+| Phase | Paper Included? | Reason |
+|-------|----------------|--------|
+| BODY (first submission) | NO | Nothing written yet - paper doesn't exist |
+| BODY (continuation) | YES | Must see existing sections to continue coherently |
+| CONCLUSION | YES | **MUST** see body sections to summarize them |
+| INTRODUCTION | YES | **MUST** see body+conclusion to preview them |
+| ABSTRACT | YES | **MUST** see entire paper to summarize it |
+
+**Implementation**: The `build_construction_prompt()` function checks `section_phase in ("conclusion", "introduction", "abstract")` and ALWAYS includes the current paper for these phases, regardless of any `is_first_portion` flag. Without this, the AI would be told "Review the completed body sections" in its system prompt without actually being shown the body sections - causing duplications and incoherent output.
+
+### Legacy Generic Prompt (Backward Compatibility)
+
+**Function:** `get_construction_system_prompt()` - Still available for non-phase-based usage
+
+When `section_phase` is not specified, the generic prompt is used which follows the old behavior of writing "next best section" without explicit phase constraints.
+
+### Coordinator Phase Tracking
+
+**File:** `backend/compiler/core/compiler_coordinator.py`
+
+The coordinator tracks the current phase via `autonomous_section_phase`:
+- Starts at "body" when paper construction begins
+- Advances phases based on `section_complete` signal from submissions
+- Phase order: body → conclusion → introduction → abstract
+- Paper is complete when abstract phase receives `section_complete: true`
+
+**Phase Transition Method:** `_check_phase_transition(section_complete: bool)`
+- Takes explicit `section_complete` parameter from submission
+- Returns `True` when paper is fully complete (abstract phase done)
+- Broadcasts WebSocket events for each phase transition
+
+**Autonomous Mode Phase Synchronization:**
+When the compiler runs in autonomous mode (Part 3), the autonomous coordinator polls `autonomous_section_phase` every 3 seconds and syncs it to the workflow state (`paper_phase` field). This ensures accurate crash recovery and prevents the bug where workflow state showed "outline" even though the compiler had progressed through body/conclusion/introduction phases.
+
+---
+
+## 5. COMPILER-Submitter OUTLINE CREATION (PHASE 1: ITERATIVE REFINEMENT)
+
+**File:** `backend/compiler/prompts/outline_prompts.py`
+
+### Two-Phase Outline System
+
+**PHASE 1: Initial Outline Creation (Before Paper Construction)**
+- Iterative refinement loop with validator feedback
+- Submitter generates/refines outline multiple times
+- Validator provides feedback each iteration (accept/reject)
+- Submitter decides when to lock outline (`outline_complete=true`)
+- Hard limit: 15 iterations (force completion)
+
+**PHASE 2: Outline Update (During Body Construction) - UPDATED FOR EXACT STRING MATCHING**
+- Runs once per construction loop cycle (after 4 constructions)
+- Construction loop repeats throughout body construction
+- If rejected: moves to review phase, gets another chance next loop
+- Only during body phase (skipped for conclusion/intro/abstract)
+- Uses `needs_update`, `operation`, `old_string`, `new_string` JSON schema
+- Now uses exact string matching like all other compiler modes
+
+### Required Section Structure (MANDATORY)
+
+All outlines MUST include these exact sections with these exact names in this exact order:
+
+| Section | Exact Name | Required | Position |
+|---------|-----------|----------|----------|
+| Abstract | "Abstract" | YES | First in outline/paper |
+| Introduction | "Introduction" or "I. Introduction" | YES | After Abstract |
+| Body | Flexible (II., III., etc.) | YES (at least 1) | Between Intro and Conclusion |
+| Conclusion | "Conclusion" or "N. Conclusion" | YES | Last content section |
+
+### JSON Schema - Phase 1 (Outline Create)
+
+```json
+{
+  "content": "string - complete outline with sections and subsections",
+  "outline_complete": true OR false,
+  "reasoning": "string - explanation of outline structure AND completion decision"
+}
+```
+
+### Examples - Phase 1
+
+**Iteration 2 (Continue Refining):**
+```json
+{
+  "content": "Abstract\n\nI. Introduction\n   A. Historical context\n   B. Problem statement\n\nII. Preliminaries\n   A. Basic definitions\n   B. Constructible numbers\n   C. Transcendental numbers\n\nIII. Main Results\n   A. Theorem 1\n   B. Theorem 2\n\nIV. Conclusion",
+  "outline_complete": false,
+  "reasoning": "Structure improved based on validator feedback. Added Problem statement and Transcendental numbers subsections. However, validator feedback noted missing Galois theory connections (submission 11) and incomplete coverage of Lindemann-Weierstrass theorem details. Will add these refinements in next iteration."
+}
+```
+
+**Iteration 7 (Lock Outline):**
+```json
+{
+  "content": "Abstract\n\nI. Introduction\n   A. Historical context of circle-squaring problem\n   B. Statement of impossibility\n   C. Overview of proof approach\n\nII. Preliminaries and Definitions\n   A. Compass and straightedge constructions\n   B. Field extensions and constructible numbers\n   C. Algebraic vs. transcendental numbers\n   D. Galois theory connections to constructibility\n\nIII. Main Theoretical Results\n   A. Theorem: Characterization of constructible lengths\n   B. Theorem: Lindemann-Weierstrass (transcendence of π)\n   C. Theorem: Baker's theorem and applications\n   D. Corollary: Impossibility of squaring the circle\n\nIV. Proofs and Derivations\n   A. Proof of constructibility characterization\n   B. Lindemann-Weierstrass proof outline\n   C. Connection to algebraic field theory\n   D. Derivation of main impossibility result\n\nV. Conclusion\n   A. Summary of impossibility result\n   B. Related classical problems\n   C. Historical and mathematical significance",
+  "outline_complete": true,
+  "reasoning": "Outline comprehensively captures ALL content from aggregator database. Added Galois theory subsection D under Preliminaries (iterations 3-4 feedback). Expanded Main Results with Baker's theorem (iteration 5 feedback). Added algebraic field theory connection in Proofs section (iteration 6 feedback). All required sections (Abstract, Introduction, Body, Conclusion) present with exact names. Structure follows logical mathematical progression. Ready to lock and begin paper construction."
+}
+```
+
+### Validator Feedback Format
+
+**Acceptance with Optional Improvements:**
+```
+ITERATION 4 - ACCEPTED
+
+STRENGTHS:
+- All required sections (Abstract, Introduction, Body sections, Conclusion) present with correct names
+- Good coverage of Lindemann-Weierstrass theorem and constructibility theory
+- Logical progression from basic definitions to advanced theorems
+
+VALIDATION CRITERIA MET:
+✓ Required section structure (Abstract, Intro, Body, Conclusion)
+✓ Captures content from submissions 1, 3, 5, 7, 9, 12, 14
+✓ Aligns with user's compiler-directing prompt goal
+✓ Sections in correct order with valid names
+
+OPTIONAL IMPROVEMENTS TO CONSIDER:
+- Galois theory connections mentioned in submission 11 could strengthen Preliminaries section
+- Consider adding subsection on worked examples under Proofs for pedagogical clarity
+- Baker's theorem (submissions 8, 12, 17) currently not reflected in outline
+
+DECISION: You may refine further (outline_complete=false) or lock now (outline_complete=true). The outline is acceptable as-is, but the optional improvements would enhance comprehensiveness.
+```
+
+**Rejection with Specific Guidance:**
+```
+ITERATION 2 - REJECTED
+
+VALIDATION FAILURE: MISSING REQUIRED SECTION
+The outline is missing the "Conclusion" section. Every outline MUST include: Abstract, Introduction, at least one Body section, and Conclusion with exact names.
+
+ADDITIONAL CONTENT GAPS:
+- Section II "Preliminaries" lacks coverage of Galois theory connections to constructibility (extensively discussed in submissions 8, 11, 15)
+- Section III "Main Results" missing Baker's theorem, which appears prominently in submissions 8, 12, 17, 20
+- No coverage of algebraic field theory foundations from submissions 6, 13, 18
+
+REQUIRED ACTIONS:
+1. Add "Conclusion" section as the last content section (required)
+2. Add subsection "D. Galois Theory Connections" under Section II
+3. Add subsection "C. Baker's Theorem" under Section III
+4. Consider adding subsection on algebraic field theory under Preliminaries
+
+STRUCTURAL NOTE:
+Current body sections (II. Preliminaries, III. Main Results) are well-structured. Once you add Conclusion and fill content gaps, the outline will meet validation criteria.
+
+Generate revised outline addressing these specific gaps.
+```
+
+---
+
+## 6. COMPILER-Submitter OUTLINE UPDATE
+
+**File:** `backend/compiler/prompts/outline_prompts.py`
+
+### Complete Prompt Structure
+
+**Function:** `get_outline_update_system_prompt()`
+
+```python
+def get_outline_update_system_prompt() -> str:
+    return """You are reviewing the current document outline to decide if it needs updating. Your role is to:
+
+1. Review the aggregator database for any content not yet captured in the outline
+2. Review the current document construction progress
+3. Decide if the outline needs modification to better serve the document
+
+REQUIRED SECTION STRUCTURE (MUST BE PRESERVED):
+The outline MUST maintain these exact sections in this exact order:
+1. **Abstract** - Brief summary (exactly "Abstract")
+2. **Introduction** - Background and roadmap (exactly "Introduction" or "I. Introduction")
+3. **Body Sections** - Main content (numbered II, III, IV, etc.)
+4. **Conclusion** - Summary of findings (exactly "Conclusion" or "N. Conclusion")
+
+YOUR TASK:
+Decide if the outline requires updates. Consider:
+- Relevance to current content from aggregator database
+- Missing content that should be included in outline
+- Structural issues in current outline
+- Alignment with document construction progress
+
+WHEN TO UPDATE THE OUTLINE (ADDITIONS ONLY):
+- Important content from aggregator DB is missing from current outline
+- Document construction reveals needed additional sections
+- New pertinent information should be added to complete the document relative to the user-prompt title
+
+Note: You can only add to the outline, not delete or remove existing sections.
+Note: New body sections must be inserted before the Conclusion section.
+
+WHEN NOT TO UPDATE:
+- Current outline already contains all pertinent information
+- No new relevant content needs to be added
+
+Requirements for Updates:
+- All content must be rooted in sound mathematical reasoning from the aggregator database
+- No unfounded claims or logical fallacies
+- Focus on rigorous mathematical arguments
+- Never change the names of Abstract, Introduction, or Conclusion sections
+- New body sections must be inserted between Introduction and Conclusion
+
+EXACT STRING MATCHING FOR UPDATES:
+This system uses EXACT STRING MATCHING. To insert new sections:
+1. Find the exact text in the outline where you want to insert AFTER (the anchor)
+2. Use operation="insert_after" with that exact anchor text as old_string
+3. Put your new section(s) as new_string
+
+If you decide NO update is needed, set "needs_update" to false and leave operation, old_string, and new_string empty.
+
+Output your response ONLY as JSON in this exact format:
+{
+  "needs_update": true or false,
+  "operation": "insert_after | replace",
+  "old_string": "exact text from outline (anchor point, empty if needs_update=false)",
+  "new_string": "new sections to add (empty if needs_update=false)",
+  "reasoning": "Why addition is or isn't needed"
+}
+"""
+```
+
+### Assembly in `build_outline_update_prompt()`
+
+```python
+# Parts assembled in order:
+1. get_outline_update_system_prompt()   # Enhanced system prompt above
+2. "\n---\n"
+3. get_outline_json_schema()            # Unchanged - existing JSON schema
+4. "\n---\n"
+5. f"USER COMPILER-DIRECTING PROMPT:\n{user_prompt}"  # ALWAYS direct
+6. "\n---\n"
+7. f"CURRENT OUTLINE:\n{current_outline}"  # Direct injected
+8. "\n---\n"
+9. f"CURRENT DOCUMENT PROGRESS:\n{current_paper}"  # Direct injected
+10. if rag_evidence: "\n---\nAGGREGATOR DATABASE EVIDENCE:\n{rag_evidence}"
+11. "\n---\n"
+12. "Now decide if outline update is needed (respond as JSON):"
+```
+
+---
+
+## 7. COMPILER SUBMITTER REVIEW/AUDIT DOCUMENT PROMPT
+
+**File:** `backend/compiler/prompts/review_prompts.py`
+
+### Complete Prompt Structure
+
+**Function:** `get_review_system_prompt()`
+
+```python
+def get_review_system_prompt() -> str:
+    return """You are reviewing the current mathematical document draft for errors and needed improvements. Your role is to:
+
+1. Review ONLY the current document (aggregator database is NOT in your context for this task)
+2. Identify any obvious errors or issues
+3. Decide if an edit is needed or if the document is acceptable as a "draft in progress"
+
+YOUR TASK:
+Review the document for these specific issues:
+- Grammar errors
+- Clarity problems
+- Mathematical accuracy issues
+- Logical errors or gaps
+- Structural issues
+- Redundancy
+- Forward-looking structural previews
+- Other improvements
+
+WHEN TO MAKE AN EDIT:
+- Clear grammatical errors
+- Obvious redundancy that should be removed
+- Coherence issues between sections
+- Terminology inconsistencies
+- Mathematical inaccuracies or logical errors
+- Significant clarity improvements possible
+- Forward-looking structural language outside introduction (e.g., 'Section III will...', bulleted lists of future content)
+- Unfounded claims or logical fallacies that should be corrected
+
+WHEN NOT TO MAKE AN EDIT:
+- Document is acceptable for a draft in progress
+- Only minor stylistic preferences
+- Changes would be purely cosmetic
+- No obvious issues found
+
+EXACT STRING MATCHING FOR EDITS:
+This system uses EXACT STRING MATCHING. To make an edit:
+1. Find the EXACT text you want to modify (must exist verbatim in document)
+2. Choose the operation: "replace", "insert_after", or "delete"
+3. Specify old_string (exact match) and new_string (replacement/insertion)
+
+If NO edit is needed, set "needs_edit" to false and leave operation, old_string, and new_string empty.
+
+Output your response ONLY as JSON in this exact format:
+{
+  "needs_edit": true or false,
+  "operation": "replace | insert_after | delete",
+  "old_string": "exact text to find (must exist verbatim, empty if needs_edit=false)",
+  "new_string": "replacement text (empty for delete or if needs_edit=false)",
+  "content": "full content for logging",
+  "reasoning": "Why edit is or isn't needed"
+}
+"""
+```
+
+### Assembly in `build_review_prompt()`
+
+```python
+# Parts assembled in order:
+1. get_review_system_prompt()           # Enhanced system prompt above
+2. "\n---\n"
+3. get_review_json_schema()             # Unchanged - existing JSON schema
+4. "\n---\n"
+5. f"USER COMPILER-DIRECTING PROMPT:\n{user_prompt}"  # ALWAYS direct
+6. "\n---\n"
+7. f"CURRENT DOCUMENT:\n{current_paper}"   # Direct injected (NO aggregator DB)
+8. "\n---\n"
+9. "Now review the document and decide if an edit is needed (respond as JSON):"
+```
+
+---
+
+## 8. CRITIQUE & REWRITE PHASE (POST-BODY CONSTRUCTION)
+
+**File:** `backend/compiler/prompts/critique_prompts.py`
+
+### Overview
+
+After the body section is complete (before conclusion), the system enters a **Critique Phase** that reuses the aggregator infrastructure to collect peer review feedback. This phase ensures the body section is mathematically sound and properly aligned before proceeding.
+
+### Workflow
+
+1. **Critique Aggregation** (5 total attempts required):
+   - Single critique submitter generates peer review feedback on body section
+   - **Decline Mechanism**: Submitter can assess "no critique needed" when body is academically acceptable (counts toward 5 total attempts)
+   - Validator validates critiques/declines (accept/reject with feedback loop)
+   - Pruning occurs every 7 acceptances (same as aggregator cleanup review)
+   - Target: 5 total attempts (accepted + rejected + declined attempts)
+   - Uses aggregator workflow with critique-specific prompts
+
+2. **Rewrite Decision**:
+   - If at least 1 critique accepted: Critique submitter reviews all accepted critiques + accumulated history from previous failed versions
+   - If 0 critiques accepted: Skip rewrite, move to next section
+   - Decides: "rewrite" (major issues found) or "continue" (minor/incorrect critiques)
+   - Validator validates the decision (accept/reject with retry loop)
+   - Decision includes optional new title and new outline
+
+3. **Rewrite Execution** (if approved):
+   - Increment rewrite counter (max: 1 rewrite allowed)
+   - Three execution paths based on decision:
+     - **CONTINUE**: Proceed to conclusion (critiques minor/incorrect)
+     - **PARTIAL_REVISION**: **ITERATIVE** edits - proposes ONE edit at a time, validates, applies, then proposes next edit
+     - **TOTAL_REWRITE**: Clear body section completely and rebuild from scratch
+   - Update title if changed (increment version number)
+   - Update outline if changed
+   - **CONTEXT FOR BOTH PARTIAL_REVISION AND TOTAL_REWRITE**:
+     - Pre-critique paper (paper snapshot from START of critique phase - shows what failed)
+     - Current accepted critique feedback (ONLY accepted, not rejected critiques)
+     - ALL critiques from ALL previous failed versions (accumulated feedback history)
+     - Original aggregator database
+     - Reference papers (if applicable)
+
+4. **Version Loop**:
+   - If rewrite_count >= 1: Skip critique phase entirely, proceed to conclusion (max rewrites reached)
+   - Single rewrite cycle is sufficient for convergence
+
+### Rationale
+
+**Why partial revision is ITERATIVE (one edit at a time):**
+- Allows the model to see the result of each edit before proposing the next
+- Each edit is validated individually for correctness
+- Prevents cascading failures from a batch of edits
+- Model can see pre-critique paper AND current paper to understand what started vs where we are
+- More precise control over the revision process
+
+**Why partial revision is preferred:**
+- Most critiques identify specific, localized issues that can be fixed with targeted edits
+- Preserves coherence in sections that are already correct
+- Faster than full body rewrite
+- Reduces risk of introducing new errors in previously sound sections
+- More efficient use of model context and computation
+
+**Why total rewrite is last resort:**
+- Total rewrites are difficult and can introduce errors in areas that were previously correct
+- Even with feedback, rewriting from scratch can lose coherence
+- Should only be used when issues are too pervasive for targeted edits
+- Catastrophic flaws (fundamental math errors throughout, complete misalignment) justify total rewrite
+- Now receives full context: pre-critique paper + accepted critiques, so rewrite is informed
+
+**Why maximum 1 rewrite:**
+- Prevents infinite rewrite loops on difficult topics
+- Forces convergence to best-effort result after single revision attempt
+- Accumulated feedback ensures the revision benefits from all critique history
+- Single rewrite cycle is sufficient with partial revision option available
+
+### Decline Mechanism (Academically Acceptable Body)
+
+**Purpose**: Allow submitter to assess when body is academically acceptable and no substantive critique is needed.
+
+**Academically Acceptable Criteria**:
+- No mathematical errors or unsound reasoning
+- No missing proofs or incomplete arguments
+- No logical gaps affecting correctness
+- Structural organization is coherent
+- All outline requirements are met
+- Content aligns with paper title and goals
+- Mathematical rigor meets academic standards
+
+**Behavior When Target Met**:
+- If NO accepted critiques: Skip rewrite, transition directly to conclusion
+- If accepted critiques exist: Run rewrite decision
+- Rationale: With only 5 attempts, no early termination mechanism is needed
+
+### Complete Prompt Structure - Critique Generation
+
+**Function:** `get_critique_submitter_system_prompt()`
+
+```python
+def get_critique_submitter_system_prompt() -> str:
+    return """You are a peer reviewer generating constructive criticism of a mathematical document's body section.
+
+[... INTERNAL CONTENT WARNING ...]
+
+YOUR TASK:
+Identify specific issues, errors, gaps, or improvements needed in the body section.
+
+WHAT TO CRITIQUE:
+- Mathematical errors or unsound reasoning
+- Missing proofs or incomplete arguments  
+- Logical gaps or unclear transitions
+- Redundancy or verbosity
+- Structural issues (sections out of order)
+- Missing content per outline
+- Content misaligned with paper title
+
+WHAT NOT TO CRITIQUE:
+- Conclusion/intro/abstract (not written yet)
+- Stylistic preferences
+- Minor formatting issues
+
+Output as JSON:
+{
+  "critique_needed": true or false,
+  "submission": "Detailed critique (empty string if critique_needed=false)",
+  "reasoning": "Why critique is/isn't needed"
+}
+
+Examples:
+- Critique needed: {"critique_needed": true, "submission": "Section III has flawed proof...", "reasoning": "Critical error"}
+- Decline: {"critique_needed": false, "submission": "", "reasoning": "Body is academically acceptable, no substantive issues"}
+  (Note: Counts as 1 attempt toward 10 total)
+"""
+```
+
+### Complete Prompt Structure - Critique Validation
+
+**Function:** `get_critique_validator_system_prompt()`
+
+```python
+def get_critique_validator_system_prompt() -> str:
+    return """You are validating peer review critiques.
+
+[... INTERNAL CONTENT WARNING ...]
+
+YOUR TASK:
+Decide if critique identifies legitimate issue that would improve the paper.
+
+ACCEPT if:
+- Identifies real mathematical error
+- Points out missing content per outline
+- Identifies structural issues
+- Is specific and actionable
+
+REJECT if:
+- Vague or unhelpful
+- Redundant with existing critiques
+- Stylistic preference
+- Incorrect (body is fine)
+
+Output as JSON:
+{
+  "decision": "accept or reject",
+  "reasoning": "Detailed explanation",
+  "summary": "Brief summary if rejected (max 750 chars)"
+}
+"""
+```
+
+### Complete Prompt Structure - Rewrite Decision
+
+**Function:** `get_rewrite_decision_system_prompt()`
+
+```python
+def get_rewrite_decision_system_prompt() -> str:
+    return """You are reviewing aggregated peer review critiques to decide if body needs revision.
+
+[... INTERNAL CONTENT WARNING ...]
+
+YOUR TASK:
+The peer review phase collected critiques through multiple attempts. ALL accepted critiques from the CURRENT version are provided below (typically 1-3 accepted out of 5 total attempts).
+
+**ACCUMULATED CRITIQUE HISTORY**: If this is not the first critique phase (rewrite_count > 0), you will also see critiques from ALL previous failed versions, labeled as "FAILED - REWRITTEN". Use this accumulated feedback to understand what went wrong in past attempts and avoid repeating mistakes.
+
+Review all critiques and decide:
+
+DECISION OPTIONS:
+1. CONTINUE - Minor/incorrect critiques
+2. PARTIAL_REVISION - Fixable issues, you will propose edits ONE AT A TIME in iterative loop
+3. TOTAL_REWRITE - Catastrophic flaws, rebuild from scratch (last resort)
+
+CONTINUE if:
+- Minor issues
+- Incorrect critiques
+- Small gaps addressable in review
+
+PARTIAL_REVISION if:
+- Specific sections have fixable errors
+- Missing content can be inserted at specific locations
+- Most of body is sound, only targeted fixes needed
+- NOTE: You will then propose edits ONE AT A TIME (not all at once)
+
+TOTAL_REWRITE if (ONLY AS LAST RESORT):
+- Fundamental mathematical errors pervasive throughout
+- Body fundamentally misaligned with paper title
+- Structural problems require complete reorganization
+- Issues too widespread for targeted edits
+- NOTE: Rewrite will have full context (pre-critique paper + accepted critiques)
+
+FOR ANY REVISION:
+- Can change title (if scope drift)
+- Can update outline (if structure needs changes)
+- For PARTIAL_REVISION: Edit operations are proposed iteratively (not in this decision)
+
+Output as JSON:
+{
+  "decision": "continue | partial_revision | total_rewrite",
+  "new_title": "New title or null",
+  "new_outline": "Updated outline or null",
+  "reasoning": "Detailed explanation"
+}
+"""
+```
+
+### Iterative Edit Prompt Structure (for PARTIAL_REVISION)
+
+**Function:** `get_iterative_edit_system_prompt()`
+
+When PARTIAL_REVISION is chosen, the system enters an iterative edit loop. Each iteration:
+1. Shows pre-critique paper (original state before this revision cycle)
+2. Shows current paper (after any edits applied so far)
+3. Shows accepted critique feedback
+4. Shows edits already applied
+5. Requests ONE edit proposal
+
+```json
+{
+  "operation": "replace | insert_after | delete",
+  "old_string": "Exact text to find in CURRENT paper",
+  "new_string": "Replacement text",
+  "reasoning": "Which critique issue this addresses",
+  "more_edits_needed": true | false
+}
+```
+
+The loop continues until `more_edits_needed=false` or max iterations (20) reached.
+
+### Assembly in `build_critique_prompt()`
+
+```python
+# Parts assembled in order:
+1. get_critique_submitter_system_prompt()
+2. "\n---\n"
+3. get_critique_json_schema()
+4. "\n---\n"
+5. f"USER COMPILER-DIRECTING PROMPT:\n{user_prompt}"  # ALWAYS direct
+6. "\n---\n"
+7. f"CURRENT OUTLINE:\n{current_outline}"  # ALWAYS fully injected
+8. "\n---\n"
+9. f"CURRENT BODY SECTION (to critique):\n{current_body}"  # Direct if fits, RAG if large
+10. "\n---\n"
+11. f"AGGREGATOR DATABASE:\n{aggregator_db}"  # RAG retrieved
+12. if reference_papers: "\n---\nREFERENCE PAPERS:\n{reference_papers}"
+13. if existing_critiques: "\n---\nEXISTING ACCEPTED CRITIQUES:\n{existing_critiques}"
+14. if rejection_feedback: "\n---\nYOUR LAST 5 REJECTIONS (Learn from these):\n{rejection_feedback}"
+15. "\n---\n"
+16. "Now generate your critique as JSON:"
+```
+
+### Assembly in `build_rewrite_decision_prompt()`
+
+```python
+# Parts assembled in order:
+1. get_rewrite_decision_system_prompt()
+2. "\n---\n"
+3. get_rewrite_decision_json_schema()
+4. "\n---\n"
+5. f"USER COMPILER-DIRECTING PROMPT:\n{user_prompt}"
+6. "\n---\n"
+7. f"CURRENT PAPER TITLE:\n{current_title}"
+8. "\n---\n"
+9. f"CURRENT OUTLINE:\n{current_outline}"
+10. "\n---\n"
+11. f"PRE-CRITIQUE PAPER (body at START of this revision cycle):\n{pre_critique_paper}"  # Shows what failed
+12. "\n---\n"
+13. f"CURRENT BODY SECTION (after critique phase):\n{current_body}"
+14. if accumulated_history: "\n---\n{accumulated_history}"
+15. "\n---\n"
+16. f"ALL ACCEPTED CRITIQUES (CURRENT VERSION):\n{critique_feedback}"
+17. "\n---\n"
+18. f"AGGREGATOR DATABASE:\n{aggregator_db}"
+19. if reference_papers: "\n---\nREFERENCE PAPERS:\n{reference_papers}"
+20. "\n---\n"
+21. "Review the accepted critiques and decide (respond as JSON):"
+```
+
+### JSON Schemas
+
+**Critique Submission:**
+```json
+{
+  "submission": "Detailed critique of specific issue",
+  "reasoning": "Why this is important"
+}
+```
+
+**Critique Validation:**
+```json
+{
+  "decision": "accept or reject",
+  "reasoning": "Detailed explanation",
+  "summary": "Brief summary if rejected (max 750 chars)"
+}
+```
+
+**Rewrite Decision:**
+```json
+{
+  "decision": "continue | partial_revision | total_rewrite",
+  "new_title": "New title or null",
+  "new_outline": "Updated outline or null",
+  "reasoning": "Detailed explanation"
+}
+```
+
+**Iterative Edit (for partial_revision loop):**
+```json
+{
+  "operation": "replace | insert_after | delete",
+  "old_string": "Exact text to find",
+  "new_string": "Replacement text",
+  "reasoning": "Which critique this addresses",
+  "more_edits_needed": true | false
+}
+```
+
+**Rewrite Decision Validation:**
+```json
+{
+  "decision": "accept or reject",
+  "reasoning": "Why decision is or isn't justified"
+}
+```
+
+---
+
+## 9. COMPILER RIGOR PROMPTS
+
+**File:** `backend/compiler/prompts/rigor_prompts.py`
+
+**BODY-ONLY MODE**: Rigor enhancement is ONLY performed during body construction phase. Once body is complete (Conclusion exists in paper, or in autonomous mode when `autonomous_section_phase != "body"`), rigor mode is skipped entirely. The coordinator handles this check via `_is_body_complete()` before invoking the rigor loop.
+
+### Complete Prompt Structure
+
+**Function:** `get_rigor_system_prompt()`
+
+```python
+def get_rigor_system_prompt() -> str:
+    return """You are enhancing the mathematical rigor of a mathematical document. Your role is to:
+
+1. Review the current document
+2. Review the outline
+3. Identify areas where mathematical rigor can be improved
+4. Propose specific enhancements
+
+YOUR TASK:
+Identify where rigor can be improved - or if the document already maintains appropriate mathematical rigor for its current stage of construction, state such instead of creating an enhancement attempt and note your refusal to make changes as they would be unnecessary or could degrade readability.
+
+Consider these areas for potential improvement:
+- Precision of mathematical claims and definitions
+- Completeness of proofs and logical arguments
+- Justification and supporting lemmas
+- Acknowledgment of assumptions and edge cases
+- Clarity of mathematical notation
+- Addressing potential counterexamples or boundary conditions
+
+If enhancements are warranted, propose revisions that strengthen mathematical grounding while preserving correctness and flow.
+
+RIGOR ENHANCEMENTS INCLUDE:
+- Strengthening proof arguments with additional steps
+- Clarifying assumptions and conditions
+- Adding intermediate lemmas where appropriate
+- Improving precision of mathematical language and notation
+- Addressing potential counterexamples or edge cases
+- Strengthening logical connections between claims
+- Ensuring all claims are properly justified
+- Adding clarifying remarks for complex arguments
+
+Requirements:
+- Only propose enhancements that add mathematical rigor, not change content
+- Maintain the existing narrative and structure
+- Describe clearly where the enhancement should be applied
+- Don't remove or substantially alter existing content
+- Focus on making mathematical claims more precise and defensible
+- Do not add forward-looking structural previews
+- Add rigor to existing mathematical prose, not roadmaps of future content
+- Focus on sound mathematical reasoning
+
+EXACT STRING MATCHING FOR ENHANCEMENTS:
+This system uses EXACT STRING MATCHING. To propose an enhancement:
+1. Find the EXACT text you want to enhance (must exist verbatim in document)
+2. Choose the operation: "replace" (to improve existing text) or "insert_after" (to add after specific text)
+3. Specify old_string (exact match) and new_string (enhanced version or addition)
+
+If the document is already rigorous enough at this stage of construction, you may respond that no enhancement is needed.
+
+The validator will reject if:
+- Enhancement reduces rigor or clarity
+- old_string doesn't exist exactly in the document
+- Changes undermine existing coherence
+- Enhancement is inappropriate for current draft stage
+- Enhancement introduces unsound mathematical claims
+
+Output your response ONLY as JSON in this exact format:
+{
+  "needs_enhancement": true or false,
+  "operation": "replace | insert_after",
+  "old_string": "exact text to find (must exist verbatim, empty if needs_enhancement=false)",
+  "new_string": "enhanced text (empty if needs_enhancement=false)",
+  "content": "full content for logging",
+  "reasoning": "Why this enhancement is or isn't needed"
+}
+"""
+```
+
+### Assembly in `build_rigor_prompt()`
+
+```python
+# Parts assembled in order:
+1. get_rigor_system_prompt()            # Enhanced system prompt above
+2. "\n---\n"
+3. get_rigor_json_schema()              # Unchanged - existing JSON schema
+4. "\n---\n"
+5. f"USER COMPILER-DIRECTING PROMPT:\n{user_prompt}"  # ALWAYS direct injected
+6. "\n---\n"
+7. f"CURRENT OUTLINE:\n{current_outline}"  # ALWAYS FULLY INJECTED (crucial for structure understanding)
+8. "\n---\n"
+9. f"CURRENT DOCUMENT:\n{current_paper}"   # RAG retrieved (relevant sections only)
+10. "\n---\n"
+11. "Now decide if rigor enhancement is needed (respond as JSON):"
+```
+
+**Note**: The outline is always fully injected for rigor mode. If outline + system prompts exceed available context, RAG budget is automatically reduced to fit. The outline provides the structural framework for document construction and validation. Without the complete outline, agents cannot properly:
+- Determine where content should be placed
+- Ensure sections follow the planned structure
+- Validate coherence across the entire document
+- Add rigor enhancements that align with the document's organization
+
+---
+
+## EXACT STRING MATCHING SYSTEM
+
+**All compiler modes use exact string matching for document edits - no fuzzy matching:**
+
+### Core Principles
+- Submitters provide exact text (`old_string`) to identify edit locations
+- The `old_string` MUST exist verbatim (exactly) in the document
+- The `old_string` MUST be unique (appear only once)
+- If match fails or is ambiguous, submission is REJECTED with clear feedback
+- Industry-standard approach used by Cursor, Claude Code, and similar tools
+
+### JSON Schema for Edit Operations
+
+All compiler modes (construction, review, rigor, outline_update) use this schema:
+
+```json
+{
+  "operation": "replace | insert_after | delete | full_content",
+  "old_string": "Exact text to find (must exist verbatim and be unique)",
+  "new_string": "Replacement or insertion text",
+  "content": "Full content for display/logging",
+  "reasoning": "Explanation of the edit"
+}
+```
+
+### Operation Types
+
+| Operation | old_string Required? | new_string | Use Case |
+|-----------|---------------------|------------|----------|
+| `replace` | YES (must be unique) | Required | Replace existing text with new text |
+| `insert_after` | YES (must be unique) | Required | Insert new text immediately after old_string |
+| `delete` | YES (must be unique) | Empty | Remove the old_string from document |
+| `full_content` | NO (empty) | Required | Add entirely new section (no existing match needed) |
+
+
+### Validation Rules
+- **REJECT** if `old_string` is not found exactly (no fuzzy matching)
+- **REJECT** if `old_string` matches multiple locations (not unique)
+- **REJECT** if `operation` doesn't match the intent (e.g., using "replace" for new content)
+- Validator confirms content flows naturally at the edit location
+- Validator ensures edits align with outline structure
+
+---
+
+## JSON Escape Rules (Applied in All Prompt Files)
+
+All prompt files include standardized, numbered JSON escape rules for clarity:
+
+```
+JSON ESCAPING RULES FOR LaTeX:
+LaTeX notation IS ALLOWED and EXPECTED - you must escape it properly in JSON:
+
+1. Every backslash in your content needs ONE escape in JSON
+   - To write \mathbb{Z} in content, write: "\\mathbb{Z}" in JSON
+   - To write \( and \), write: "\\(" and "\\)" in JSON
+   - Example: Write "\\tau" not "\tau", write "\\(" not "\("
+   
+2. Do NOT double-escape: \\\\mathbb is WRONG, \\mathbb is CORRECT
+   - WRONG: "\\\\mathbb{Z}" (double-escaped, won't match document)
+   - CORRECT: "\\mathbb{Z}" (single-escaped, matches document)
+   
+3. For old_string in edits: copy text EXACTLY from the document, just escape backslashes
+   - If document has \mathbb{Z}, your JSON must have "\\mathbb{Z}"
+   
+4. Quotes: Escape double quotes inside strings as \"
+   - Example: "He said \"hello\"" 
+   
+5. Newlines/Tabs: Use \n for newlines (not \\n), \t for tabs (not \\t)
+   - Example: "Line 1\nLine 2" creates two lines
+   
+6. Valid JSON escapes ONLY: \", \\, \/, \b, \f, \n, \r, \t, \uXXXX (4 hex digits)
+```
+
+**Applied in:**
+- `backend/compiler/prompts/outline_prompts.py`
+- `backend/compiler/prompts/construction_prompts.py`
+- `backend/compiler/prompts/rigor_prompts.py`
+- `backend/compiler/prompts/review_prompts.py`
+- `backend/aggregator/prompts/submitter_prompts.py`
+- `backend/aggregator/prompts/validator_prompts.py`
+
+**Rationale**: Models often generate LaTeX notation (`\tau`, `\Delta`, `\[`, etc.) which creates invalid JSON escape sequences. The numbered format with examples makes it clearer for models to follow. The `sanitize_json_response()` function in `json_parser.py` handles remaining issues automatically.
+
+**CRITICAL - LaTeX IS Allowed**: The rules above apply to system prompts. Retry prompts (when JSON parsing fails) **DO NOT** tell models to avoid LaTeX - they guide proper escaping. This ensures mathematical content is preserved and exact string matching works correctly. See **Standard LaTeX-Focused Retry** section above for retry prompt design.
+
+---
+
+## PART 3 - AUTONOMOUS RESEARCH MODE JSON SCHEMAS
+
+**File:** `backend/autonomous/prompts/`
+
+Part 3 introduces autonomous topic selection, brainstorm-to-paper workflows, and paper library management. All JSON schemas follow the same escape rules as Part 1 and Part 2.
+
+---
+
+### 1. TOPIC SELECTION SUBMITTER
+
+**File:** `backend/autonomous/prompts/topic_prompts.py`
+
+**Function:** `get_topic_selection_json_schema()`
+
+```
+REQUIRED JSON FORMAT:
+{
+  "action": "new_topic | continue_existing | combine_topics",
+  "topic_id": "string - Required if action is continue_existing",
+  "topic_ids": ["array of topic_ids - Required if action is combine_topics"],
+  "topic_prompt": "string - Required if action is new_topic or combine_topics. The brainstorm question/avenue to explore",
+  "reasoning": "string - Why this is the best choice right now"
+}
+
+FIELD REQUIREMENTS:
+- action: MUST be one of: "new_topic", "continue_existing", "combine_topics"
+- topic_id: Required ONLY if action is "continue_existing"
+- topic_ids: Required ONLY if action is "combine_topics" (array of 2+ topic IDs)
+- topic_prompt: Required if action is "new_topic" OR "combine_topics"
+- reasoning: ALWAYS required
+
+EXAMPLES:
+
+New Topic:
+{
+  "action": "new_topic",
+  "topic_prompt": "Explore connections between modular forms and Galois representations in the context of the Langlands program",
+  "reasoning": "The existing brainstorms have covered L-functions and automorphic representations. Modular forms provide a concrete computational entry point to the Langlands correspondence that hasn't been explored yet."
+}
+
+Continue Existing:
+{
+  "action": "continue_existing",
+  "topic_id": "topic_003",
+  "reasoning": "The brainstorm on reciprocity laws has only 7 submissions and has not yet covered explicit formulas or computational approaches. Continuing this topic will provide more complete understanding before moving to a new avenue."
+}
+
+Combine Topics:
+{
+  "action": "combine_topics",
+  "topic_ids": ["topic_002", "topic_005"],
+  "topic_prompt": "Unified exploration of local and global class field theory with applications to the Langlands program",
+  "reasoning": "Topics 002 (local class field theory) and 005 (global reciprocity) are closely related and would benefit from unified treatment. Combining them will reveal deeper connections."
+}
+```
+
+---
+
+### 2. TOPIC VALIDATOR
+
+**File:** `backend/autonomous/prompts/topic_prompts.py`
+
+**Function:** `get_topic_validator_json_schema()`
+
+```
+REQUIRED JSON FORMAT:
+{
+  "decision": "accept | reject",
+  "reasoning": "string - Detailed explanation for the decision"
+}
+
+FIELD REQUIREMENTS:
+- decision: MUST be either "accept" or "reject"
+- reasoning: ALWAYS required - detailed explanation
+
+EXAMPLE:
+{
+  "decision": "accept",
+  "reasoning": "The proposed topic on modular forms represents a valuable new avenue that complements existing brainstorms on L-functions. The submitter correctly identifies this as a concrete entry point to Langlands correspondence that hasn't been explored in prior topics."
+}
+```
+
+---
+
+### 3. BRAINSTORM COMPLETION REVIEW SUBMITTER
+
+**File:** `backend/autonomous/prompts/completion_prompts.py`
+
+**Function:** `get_completion_review_json_schema()`
+
+```
+REQUIRED JSON FORMAT:
+{
+  "decision": "continue_brainstorm | write_paper",
+  "reasoning": "string - Detailed explanation of assessment",
+  "suggested_additions": "string - If continue_brainstorm, what mathematical areas remain unexplored (optional)"
+}
+
+FIELD REQUIREMENTS:
+- decision: MUST be either "continue_brainstorm" or "write_paper"
+- reasoning: ALWAYS required
+- suggested_additions: Optional, but recommended if decision is "continue_brainstorm"
+
+EXAMPLES:
+
+Continue Brainstorm:
+{
+  "decision": "continue_brainstorm",
+  "reasoning": "While the brainstorm has covered fundamental aspects of modular forms and their Galois representations, there remain unexplored areas including explicit computational methods, connections to elliptic curves, and applications to specific cases of Langlands correspondence.",
+  "suggested_additions": "Explore explicit computations of Galois representations attached to modular forms, investigate connections to elliptic curves over number fields, examine specific cases of the Langlands correspondence for GL(2)"
+}
+
+Write Paper:
+{
+  "decision": "write_paper",
+  "reasoning": "The brainstorm has thoroughly explored modular forms, Galois representations, L-functions, automorphic forms, and their interconnections in the context of Langlands program. The database contains 23 high-quality submissions covering theoretical foundations, computational aspects, and specific examples. Further submissions would likely be redundant. A comprehensive paper can now synthesize these insights."
+}
+```
+
+---
+
+### 4. COMPLETION SELF-VALIDATOR
+
+**File:** `backend/autonomous/prompts/completion_prompts.py`
+
+**Function:** `get_completion_self_validation_json_schema()`
+
+```
+REQUIRED JSON FORMAT:
+{
+  "validated": true | false,
+  "reasoning": "string - Why the assessment is or isn't accurate"
+}
+
+FIELD REQUIREMENTS:
+- validated: MUST be boolean (true or false)
+- reasoning: ALWAYS required
+
+EXAMPLES:
+
+Validated True:
+{
+  "validated": true,
+  "reasoning": "The completion assessment accurately reflects the current state of the brainstorm. The database has indeed covered all major mathematical avenues for this topic, and further exploration would likely yield diminishing returns or redundant content. The decision to proceed to paper writing is justified."
+}
+
+Validated False:
+{
+  "validated": false,
+  "reasoning": "Upon reflection, the completion assessment was premature. While the brainstorm has good breadth, there are still unexplored computational techniques and specific examples that would strengthen a resulting paper. The suggested additions are valuable and warrant continued brainstorming before paper compilation."
+}
+```
+
+---
+
+### 5. REFERENCE PAPER EXPANSION REQUEST
+
+**File:** `backend/autonomous/prompts/paper_reference_prompts.py`
+
+**Function:** `get_reference_expansion_json_schema()`
+
+```
+REQUIRED JSON FORMAT:
+{
+  "expand_papers": ["array of paper_ids to see full content"],
+  "proceed_without_references": false,
+  "reasoning": "string - Why these papers should be expanded OR why no papers meet the 'very useful' threshold"
+}
+
+FIELD REQUIREMENTS:
+- expand_papers: Array of paper IDs (can be empty)
+- proceed_without_references: Boolean - set true if no papers are very useful
+- reasoning: ALWAYS required
+
+EXAMPLES:
+
+Expand Papers:
+{
+  "expand_papers": ["paper_003", "paper_007", "paper_011"],
+  "proceed_without_references": false,
+  "reasoning": "Papers 003, 007, and 011 appear highly relevant based on their abstracts. Paper 003 covers class field theory which connects directly to our brainstorm on reciprocity laws. Papers 007 and 011 discuss Galois representations and modular forms respectively, both central to our upcoming paper. Need to see full content to assess their utility for reference."
+}
+
+Proceed Without References:
+{
+  "expand_papers": [],
+  "proceed_without_references": true,
+  "reasoning": "After reviewing all existing paper abstracts, none meet the 'very useful' threshold for the upcoming paper on modular forms and Galois representations. The existing papers focus on different aspects of Langlands program (L-functions, automorphic forms) that don't provide direct reference value for this specific paper topic."
+}
+```
+
+---
+
+### 6. REFERENCE PAPER FINAL SELECTION
+
+**File:** `backend/autonomous/prompts/paper_reference_prompts.py`
+
+**Function:** `get_reference_selection_json_schema()`
+
+```
+REQUIRED JSON FORMAT:
+{
+  "selected_papers": ["array of up to 6 paper_ids"],
+  "reasoning": "string - Why these specific papers are very useful for the upcoming paper"
+}
+
+FIELD REQUIREMENTS:
+- selected_papers: Array of paper IDs (maximum 6, can be empty)
+- reasoning: ALWAYS required
+
+CONSTRAINTS:
+- Maximum 6 papers can be selected (hard limit for context budget)
+- Papers must be selected from those shown in expansion request
+
+EXAMPLE:
+{
+  "selected_papers": ["paper_003", "paper_007", "paper_011"],
+  "reasoning": "After reviewing full content, these three papers provide the most useful reference material: Paper 003 establishes the class field theory foundation needed for our reciprocity discussions. Paper 007's treatment of Galois representations will inform our theoretical sections. Paper 011's computational examples of modular forms will enhance our practical demonstrations. The other expanded papers, while relevant, overlap too much with our brainstorm content or cover tangential topics."
+}
+```
+
+---
+
+### 7. PAPER TITLE SELECTION
+
+**File:** `backend/autonomous/prompts/paper_title_prompts.py`
+
+**Function:** `get_paper_title_json_schema()`
+
+```
+REQUIRED JSON FORMAT:
+{
+  "paper_title": "string - The complete title for the mathematical research paper",
+  "reasoning": "string - Why this title appropriately captures the brainstorm content and differentiates from existing papers (if any)"
+}
+
+FIELD REQUIREMENTS:
+- paper_title: ALWAYS required - complete paper title
+- reasoning: ALWAYS required
+
+EXAMPLE:
+{
+  "paper_title": "Modular Forms and Galois Representations in the Langlands Program: A Computational Perspective",
+  "reasoning": "This title accurately captures the core content of our brainstorm database, which extensively covers both modular forms and Galois representations with emphasis on computational approaches. The subtitle 'A Computational Perspective' differentiates it from the existing theoretical paper on Langlands correspondence in our library and reflects the practical examples and algorithms present in the brainstorm submissions."
+}
+```
+
+**DISTINCTION FOR TITLE VALIDATION:**
+
+The validator MUST distinguish between these two concepts:
+
+| Concept | Definition | Validation Behavior |
+|---------|------------|---------------------|
+| **Brainstorm Submissions** | Raw research insights in "BRAINSTORM SUMMARY" - the SOURCE MATERIAL for the paper | Title SHOULD reflect this content - that's expected! DO NOT reject for similarity to brainstorm submissions |
+| **Existing Papers from Brainstorm** | Previously completed Tier 2 papers listed in "EXISTING PAPERS FROM THIS BRAINSTORM" | ONLY reject if title is too similar to these existing papers |
+
+**Key Validation Rules:**
+- If "EXISTING PAPERS FROM THIS BRAINSTORM: None" → There's nothing to differentiate from, accept if other criteria met
+- A title being similar to brainstorm content is CORRECT behavior (it captures the source material)
+- A title being similar to an existing paper is a rejection reason (would create redundancy)
+- DO NOT reject simply because the title reflects brainstorm submission content
+
+---
+
+### 8. PAPER REDUNDANCY REVIEW
+
+**File:** `backend/autonomous/prompts/paper_redundancy_prompts.py`
+
+**Function:** `get_paper_redundancy_json_schema()`
+
+```
+REQUIRED JSON FORMAT:
+{
+  "should_remove": true | false,
+  "paper_id": "string - The paper_id to remove (or null if should_remove is false)",
+  "reasoning": "string - Detailed explanation of why this paper should be removed OR why no removal is needed"
+}
+
+FIELD REQUIREMENTS:
+- should_remove: Boolean
+- paper_id: Required if should_remove is true, null otherwise
+- reasoning: ALWAYS required
+
+CONSTRAINTS:
+- Maximum 1 paper can be removed per review cycle
+- Conservative approach: when in doubt, do NOT remove
+
+EXAMPLES:
+
+Remove Paper:
+{
+  "should_remove": true,
+  "paper_id": "paper_005",
+  "reasoning": "Paper 005 on 'Basic Principles of Class Field Theory' is now redundant. Papers 003, 009, and 014 provide more comprehensive coverage of class field theory with deeper mathematical rigor and broader applications. Paper 005's unique contributions (elementary introduction) are minimal and the library would be stronger without this redundant entry. The other papers fully subsume its content."
+}
+
+No Removal:
+{
+  "should_remove": false,
+  "paper_id": null,
+  "reasoning": "After reviewing all paper titles and abstracts, no papers are redundant. Each paper provides unique perspectives, covers distinct mathematical areas, or approaches common topics from different angles. The library maintains good diversity without unnecessary overlap."
+}
+```
+
+---
+
+### PART 3 PROMPT ASSEMBLY PATTERNS
+
+All Part 3 prompts follow similar assembly patterns to Part 1 and Part 2:
+
+```python
+# Standard assembly order:
+1. get_system_prompt()              # Role and task description
+2. "\n---\n"
+3. get_json_schema()                # JSON format requirements
+4. "\n---\n"
+5. f"USER RESEARCH GOAL:\n{user_prompt}"  # ALWAYS direct injected
+6. "\n---\n"
+7. context                          # Context varies by role
+8. if rag_evidence: "\n---\nRETRIEVED EVIDENCE:\n{rag_evidence}"
+9. "\n---\n"
+10. "Now generate your response as JSON:"
+```
+
+**Context Variations by Role:**
+
+**Topic Selection Submitter:**
+- All brainstorm topics with metadata
+- All completed papers with title + abstract + word count
+- Topic selection rejection history (last 5)
+
+**Topic Validator:**
+- Same as topic selection submitter
+- Proposed topic selection action
+
+**Brainstorm Submitters:**
+- Uses Part 1 Aggregator context (brainstorm DB, rejection logs, etc.)
+- **PLUS: Selected reference papers as user_files (enables compounding knowledge across research cycles)**
+
+**Brainstorm Validator:**
+- Uses Part 1 Aggregator context
+- **PLUS: Selected reference papers as user_files (for validation context)**
+
+**Completion Review:**
+- Full brainstorm database
+- Brainstorm metadata
+- Completion feedback (last 5)
+
+**Reference Selection (Pre-Brainstorm - "initial" mode):**
+- User's high-level research prompt
+- Brainstorm topic prompt (topic not yet explored)
+- Paper titles + abstracts (or full papers if expansion requested)
+- Purpose: Select papers to inform brainstorm exploration (COMPOUNDING KNOWLEDGE)
+
+**Reference Selection (Pre-Paper Writing - "additional" mode):**
+- User's high-level research prompt
+- Completed brainstorm database (RAG)
+- Already-selected papers (from pre-brainstorm selection)
+- Remaining paper titles + abstracts (or full papers if expansion requested)
+- Purpose: Add additional relevant papers based on brainstorm insights
+
+**Paper Title Selection:**
+- Brainstorm database (RAG)
+- Existing paper titles from same brainstorm
+- Selected reference papers (if any, RAG)
+
+**Paper Compilation:**
+- Uses Part 2 Compiler context (outline, paper, brainstorm DB, reference papers)
+
+**Paper Redundancy Review:**
+- All paper titles + abstracts
+
+---
+
+### JSON Escape Rules (Part 3)
+
+Part 3 follows the same JSON escape rules as Part 1 and Part 2 (see main section above for full details):
+
+```
+JSON ESCAPING RULES FOR LaTeX:
+LaTeX notation IS ALLOWED and EXPECTED - you must escape it properly in JSON:
+
+1. Every backslash in your content needs ONE escape in JSON
+   - To write \mathbb{Z} in content, write: "\\mathbb{Z}" in JSON
+   - To write \( and \), write: "\\(" and "\\)" in JSON
+   
+2. Do NOT double-escape: \\\\mathbb is WRONG, \\mathbb is CORRECT
+
+3. Quotes: Escape double quotes inside strings as \"
+
+4. Newlines/Tabs: Use \n for newlines (not \\n), \t for tabs (not \\t)
+
+5. Valid JSON escapes ONLY: \", \\, \/, \b, \f, \n, \r, \t, \uXXXX (4 hex digits)
+```
+
+**Applied in:**
+- `backend/autonomous/prompts/topic_prompts.py`
+- `backend/autonomous/prompts/completion_prompts.py`
+- `backend/autonomous/prompts/paper_reference_prompts.py`
+- `backend/autonomous/prompts/paper_title_prompts.py`
+- `backend/autonomous/prompts/paper_redundancy_prompts.py`
+
+---
+
+## System Requirements
+
+These core requirements apply across all prompt types:
+
+1. **Internal Content Warning**: All system prompts include the standardized skepticism warning block
+2. **Concrete Format Examples**: Every prompt includes correct/wrong format examples with visual indicators
+3. **Structured Rejection Feedback**: Validators use the standardized rejection format (Reason/Issue/What I Saw/Expected/Fix)
+4. **Compiler Outline Injection**: The compiler outline is always fully injected (never RAGed) for structural framework
+5. **Temperature Policy**: All prompts use temperature=0.0 where API calls allow (deterministic generation) - the context in the program from feedback, etc provide enough variance to avoid looping.
+6. **JSON Preprocessing**: All LLM responses preprocessed by `sanitize_json_response()`
+7. **Exact String Matching**: Document edits use exact verbatim matches (no fuzzy matching)
+8. **Phase-Based Construction**: Papers written in order: Body → Conclusion → Introduction → Abstract
+9. **Required Sections**: All outlines/papers must include Abstract, Introduction, Body, Conclusion with exact names
+10. **No Placeholder Output**: Submissions must never contain placeholder markers
+11. **Placeholder Resume Repair**: When resuming from existing paper, missing placeholders are automatically added via `paper_memory.ensure_placeholders_exist()` to prevent "old_string not found" failures
+
+---

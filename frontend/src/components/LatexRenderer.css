@@ -1,0 +1,772 @@
+/* LatexRenderer Component Styles - Enhanced for Mathematical Typography */
+
+.latex-renderer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.latex-toggle-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 1rem;
+  background: #1a1a1a;
+  border-bottom: 1px solid #333;
+  flex-shrink: 0;
+}
+
+.latex-toggle-buttons {
+  display: flex;
+  gap: 0.25rem;
+  background: #0f0f0f;
+  padding: 0.25rem;
+  border-radius: 6px;
+}
+
+.latex-toggle-btn {
+  padding: 0.5rem 1rem;
+  background: transparent;
+  border: none;
+  color: #999;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.latex-toggle-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.latex-toggle-btn.active {
+  background: #4CAF50;
+  color: white;
+  font-weight: 600;
+}
+
+.latex-indicator {
+  font-size: 0.8rem;
+  color: #4CAF50;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.latex-indicator.no-latex {
+  color: #666;
+}
+
+.latex-content-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 3rem 4.5rem;
+  background: #0a0a0a;
+  min-height: 400px;
+}
+
+.latex-raw-content {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', Consolas, monospace;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: #e0e0e0;
+  margin: 0;
+}
+
+.latex-rendered-content {
+  font-family: 'Crimson Pro', 'Crimson Text', 'Georgia', 'Times New Roman', 'CMU Serif', serif;
+  font-size: 1.1rem;
+  line-height: 1.85;
+  color: #e8e8e8;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ================================
+   MATHEMATICAL DISPLAY STYLES
+   ================================ */
+
+/* Display math - centered block equations */
+.latex-display {
+  display: block;
+  text-align: center;
+  margin: 1.75rem 0;
+  padding: 1.25rem 1rem;
+  background: rgba(255, 255, 255, 0.015);
+  border-radius: 6px;
+  overflow-x: auto;
+  border-left: 3px solid rgba(76, 175, 80, 0.3);
+}
+
+/* Inline math */
+.latex-inline {
+  display: inline;
+  vertical-align: baseline;
+}
+
+/* Display errors with clearer styling */
+.latex-error {
+  color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.1);
+  padding: 0.2rem 0.4rem;
+  border-radius: 3px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.9em;
+  cursor: help;
+  border: 1px solid rgba(255, 107, 107, 0.3);
+  word-break: break-all;
+}
+
+.latex-error:hover {
+  background: rgba(255, 107, 107, 0.2);
+  border-color: rgba(255, 107, 107, 0.5);
+}
+
+.latex-display-error {
+  display: block;
+  text-align: left;
+  margin: 1rem 0;
+  padding: 1rem;
+}
+
+/* TikZ/tikzcd diagram placeholder - KaTeX doesn't support TikZ */
+.latex-tikz-placeholder {
+  display: block;
+  margin: 1.5rem 0;
+  padding: 1rem 1.5rem;
+  background: rgba(100, 149, 237, 0.1);
+  border: 1px solid rgba(100, 149, 237, 0.4);
+  border-radius: 6px;
+  border-left: 4px solid #6495ed;
+}
+
+.latex-tikz-placeholder .tikz-label {
+  font-weight: 600;
+  color: #6495ed;
+  font-size: 0.9rem;
+  margin-bottom: 0.75rem;
+  font-family: inherit;
+}
+
+.latex-tikz-placeholder .tikz-code {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: #b0b0b0;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 0.75rem 1rem;
+  border-radius: 4px;
+  margin: 0;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ================================
+   THEOREM ENVIRONMENT STYLES
+   ================================ */
+
+.latex-theorem,
+.latex-lemma,
+.latex-proposition,
+.latex-corollary,
+.latex-definition,
+.latex-example,
+.latex-remark,
+.latex-note,
+.latex-proof,
+.latex-claim,
+.latex-conjecture,
+.latex-axiom,
+.latex-assumption {
+  margin: 1.5rem 0;
+  padding: 1.25rem 1.5rem;
+  border-radius: 6px;
+  border-left: 4px solid;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.latex-theorem {
+  border-color: #ffd700;
+  background: rgba(255, 215, 0, 0.05);
+}
+
+.latex-theorem strong {
+  color: #ffd700;
+}
+
+.latex-lemma {
+  border-color: #64b5f6;
+  background: rgba(100, 181, 246, 0.05);
+}
+
+.latex-lemma strong {
+  color: #64b5f6;
+}
+
+.latex-proposition {
+  border-color: #81c784;
+  background: rgba(129, 199, 132, 0.05);
+}
+
+.latex-proposition strong {
+  color: #81c784;
+}
+
+.latex-corollary {
+  border-color: #ba68c8;
+  background: rgba(186, 104, 200, 0.05);
+}
+
+.latex-corollary strong {
+  color: #ba68c8;
+}
+
+.latex-definition {
+  border-color: #4dd0e1;
+  background: rgba(77, 208, 225, 0.05);
+}
+
+.latex-definition strong {
+  color: #4dd0e1;
+}
+
+.latex-example {
+  border-color: #ffb74d;
+  background: rgba(255, 183, 77, 0.05);
+}
+
+.latex-example strong {
+  color: #ffb74d;
+}
+
+.latex-remark,
+.latex-note {
+  border-color: #90a4ae;
+  background: rgba(144, 164, 174, 0.05);
+}
+
+.latex-remark strong,
+.latex-note strong {
+  color: #90a4ae;
+}
+
+.latex-proof {
+  border-color: #a5d6a7;
+  background: rgba(165, 214, 167, 0.03);
+  font-style: normal;
+}
+
+.latex-proof strong {
+  color: #a5d6a7;
+  font-style: italic;
+}
+
+.latex-claim {
+  border-color: #ef9a9a;
+  background: rgba(239, 154, 154, 0.05);
+}
+
+.latex-claim strong {
+  color: #ef9a9a;
+}
+
+.latex-conjecture {
+  border-color: #ce93d8;
+  background: rgba(206, 147, 216, 0.05);
+}
+
+.latex-conjecture strong {
+  color: #ce93d8;
+}
+
+.latex-axiom,
+.latex-assumption {
+  border-color: #fff59d;
+  background: rgba(255, 245, 157, 0.05);
+}
+
+.latex-axiom strong,
+.latex-assumption strong {
+  color: #fff59d;
+}
+
+/* QED symbol */
+.qed {
+  float: right;
+  font-size: 1.2em;
+  color: #a5d6a7;
+  margin-left: 1rem;
+}
+
+/* ================================
+   SECTIONING STYLES
+   ================================ */
+
+.latex-rendered-content h1,
+.latex-rendered-content h2,
+.latex-rendered-content h3,
+.latex-rendered-content h4,
+.latex-rendered-content h5,
+.latex-rendered-content h6 {
+  color: #fff;
+  margin-top: 2rem;
+  margin-bottom: 1rem;
+  font-family: inherit;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.latex-chapter {
+  font-size: 2rem !important;
+  border-bottom: 3px solid #ffd700 !important;
+  padding-bottom: 1rem !important;
+  margin-top: 3rem !important;
+  margin-bottom: 1.5rem !important;
+  color: #ffd700 !important;
+}
+
+.latex-section {
+  font-size: 1.6rem !important;
+  border-bottom: 2px solid #4CAF50 !important;
+  padding-bottom: 0.75rem !important;
+  margin-top: 2.5rem !important;
+  margin-bottom: 1rem !important;
+}
+
+.latex-subsection {
+  font-size: 1.3rem !important;
+  border-bottom: 1px solid #555 !important;
+  padding-bottom: 0.5rem !important;
+  margin-top: 2rem !important;
+  margin-bottom: 0.75rem !important;
+  color: #e0e0e0 !important;
+}
+
+.latex-subsubsection {
+  font-size: 1.15rem !important;
+  margin-top: 1.5rem !important;
+  margin-bottom: 0.5rem !important;
+  color: #d0d0d0 !important;
+  font-weight: 600 !important;
+}
+
+.latex-paragraph {
+  font-size: 1.05rem !important;
+  font-weight: 600 !important;
+  margin-top: 1rem !important;
+  margin-bottom: 0.5rem !important;
+  color: #c0c0c0 !important;
+}
+
+/* ================================
+   TEXT FORMATTING
+   ================================ */
+
+.latex-rendered-content p {
+  margin-bottom: 1.25rem;
+  text-align: justify;
+  hyphens: auto;
+}
+
+.latex-rendered-content strong {
+  font-weight: 700;
+  color: #fff;
+}
+
+.latex-rendered-content em {
+  font-style: italic;
+}
+
+.latex-rendered-content u {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.latex-smallcaps {
+  font-variant: small-caps;
+  letter-spacing: 0.05em;
+}
+
+.latex-sans {
+  font-family: 'Inter', 'Helvetica Neue', sans-serif;
+}
+
+/* Typewriter/code text */
+.latex-texttt {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', Consolas, monospace;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.15em 0.4em;
+  border-radius: 3px;
+  font-size: 0.9em;
+  color: #4CAF50;
+}
+
+/* Footnotes */
+.latex-footnote {
+  font-size: 0.75em;
+  color: #888;
+  vertical-align: super;
+}
+
+/* ================================
+   LISTS
+   ================================ */
+
+.latex-rendered-content ul,
+.latex-rendered-content ol {
+  margin: 1.25rem 0;
+  padding-left: 2.5rem;
+}
+
+.latex-rendered-content li {
+  margin-bottom: 0.6rem;
+  line-height: 1.7;
+}
+
+.latex-enumerate {
+  list-style-type: decimal;
+}
+
+.latex-itemize {
+  list-style-type: disc;
+}
+
+.latex-description {
+  margin: 1.25rem 0;
+  padding-left: 0;
+}
+
+.latex-description dt {
+  font-weight: 700;
+  color: #fff;
+  margin-top: 0.75rem;
+  margin-bottom: 0.25rem;
+}
+
+.latex-description dd {
+  margin-left: 2rem;
+  margin-bottom: 0.75rem;
+  color: #e0e0e0;
+}
+
+/* Nested lists */
+.latex-enumerate ol,
+.latex-enumerate ul,
+.latex-itemize ol,
+.latex-itemize ul {
+  margin: 0.5rem 0;
+  padding-left: 2rem;
+}
+
+/* ================================
+   TABLES
+   ================================ */
+
+.latex-table {
+  border-collapse: collapse;
+  margin: 1.5rem auto;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.latex-table td,
+.latex-table th {
+  padding: 0.75rem 1.25rem;
+  border: 1px solid #333;
+  text-align: left;
+}
+
+.latex-table th {
+  background: rgba(255, 255, 255, 0.05);
+  font-weight: 600;
+  color: #fff;
+}
+
+.latex-table tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* Horizontal rules */
+.latex-hrule {
+  border: none;
+  border-top: 1px solid #444;
+  margin: 1.5rem 0;
+}
+
+/* ================================
+   CODE BLOCKS
+   ================================ */
+
+.latex-rendered-content code {
+  background: #1a1a1a;
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', Consolas, monospace;
+  font-size: 0.9em;
+  color: #4CAF50;
+}
+
+.latex-rendered-content pre {
+  background: #0d0d0d;
+  padding: 1.25rem;
+  border-radius: 6px;
+  overflow-x: auto;
+  border: 1px solid #333;
+  margin: 1.5rem 0;
+}
+
+.latex-rendered-content pre code {
+  background: transparent;
+  padding: 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+/* ================================
+   KATEX OVERRIDES
+   ================================ */
+
+.latex-rendered-content .katex {
+  color: #e8e8e8;
+  font-size: 1.1em;
+}
+
+.latex-rendered-content .katex-display {
+  margin: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.latex-rendered-content .katex .katex-mathml {
+  display: none;
+}
+
+/* Fraction lines */
+.latex-rendered-content .katex .frac-line {
+  border-bottom-color: #e0e0e0;
+}
+
+/* Operator spacing */
+.latex-rendered-content .katex .mbin,
+.latex-rendered-content .katex .mrel {
+  padding: 0 0.18em;
+}
+
+/* Large operators */
+.latex-rendered-content .katex .mop {
+  color: #e8e8e8;
+}
+
+/* Improve subscript/superscript visibility */
+.latex-rendered-content .katex .msupsub {
+  text-align: left;
+}
+
+/* Matrix styling */
+.latex-rendered-content .katex .mtable {
+  margin: 0.5rem 0;
+}
+
+/* Delimiter sizing */
+.latex-rendered-content .katex .delimsizing {
+  color: #c0c0c0;
+}
+
+/* Accent positioning */
+.latex-rendered-content .katex .accent {
+  position: relative;
+}
+
+/* ================================
+   SCROLLBAR STYLING
+   ================================ */
+
+.latex-content-container::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.latex-content-container::-webkit-scrollbar-track {
+  background: #1a1a1a;
+  border-radius: 5px;
+}
+
+.latex-content-container::-webkit-scrollbar-thumb {
+  background: #444;
+  border-radius: 5px;
+  border: 2px solid #1a1a1a;
+}
+
+.latex-content-container::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* ================================
+   RESPONSIVE ADJUSTMENTS
+   ================================ */
+
+@media (max-width: 1024px) {
+  .latex-content-container {
+    padding: 2rem 3rem;
+  }
+  
+  .latex-rendered-content {
+    font-size: 1.05rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .latex-toggle-bar {
+    flex-direction: column;
+    gap: 0.5rem;
+    align-items: stretch;
+  }
+  
+  .latex-toggle-buttons {
+    justify-content: center;
+  }
+  
+  .latex-indicator {
+    justify-content: center;
+  }
+  
+  .latex-content-container {
+    padding: 1.5rem;
+    min-height: 300px;
+  }
+  
+  .latex-rendered-content {
+    font-size: 1rem;
+    line-height: 1.7;
+  }
+  
+  .latex-rendered-content p {
+    text-align: left;
+  }
+  
+  .latex-enumerate,
+  .latex-itemize,
+  .latex-description {
+    padding-left: 1.5rem;
+  }
+  
+  .latex-description dd {
+    margin-left: 1.5rem;
+  }
+  
+  .latex-display {
+    padding: 0.75rem 0.5rem;
+    margin: 1rem 0;
+  }
+  
+  .latex-theorem,
+  .latex-lemma,
+  .latex-proposition,
+  .latex-corollary,
+  .latex-definition,
+  .latex-example,
+  .latex-remark,
+  .latex-note,
+  .latex-proof,
+  .latex-claim,
+  .latex-conjecture,
+  .latex-axiom,
+  .latex-assumption {
+    padding: 1rem;
+    margin: 1rem 0;
+  }
+}
+
+/* ================================
+   PRINT STYLES
+   ================================ */
+
+@media print {
+  .latex-toggle-bar {
+    display: none;
+  }
+  
+  .latex-content-container {
+    background: white;
+    color: black;
+    padding: 0;
+  }
+  
+  .latex-rendered-content {
+    color: black;
+    font-size: 11pt;
+  }
+  
+  .latex-rendered-content .katex {
+    color: black;
+  }
+  
+  .latex-error {
+    color: red;
+    background: #ffe0e0;
+    border-color: red;
+  }
+  
+  .latex-display {
+    background: #f5f5f5;
+    border-left-color: #333;
+  }
+  
+  .latex-theorem,
+  .latex-lemma,
+  .latex-proposition,
+  .latex-corollary,
+  .latex-definition,
+  .latex-example,
+  .latex-remark,
+  .latex-note,
+  .latex-proof,
+  .latex-claim,
+  .latex-conjecture,
+  .latex-axiom,
+  .latex-assumption {
+    background: #f8f8f8;
+    border-left-color: #333;
+  }
+  
+  .latex-theorem strong,
+  .latex-lemma strong,
+  .latex-proposition strong,
+  .latex-corollary strong,
+  .latex-definition strong,
+  .latex-example strong,
+  .latex-remark strong,
+  .latex-note strong,
+  .latex-proof strong,
+  .latex-claim strong,
+  .latex-conjecture strong,
+  .latex-axiom strong,
+  .latex-assumption strong {
+    color: black;
+  }
+  
+  /* TikZ placeholder for print/PDF */
+  .latex-tikz-placeholder {
+    background: #f0f4ff;
+    border-color: #6495ed;
+  }
+  
+  .latex-tikz-placeholder .tikz-label {
+    color: #4169e1;
+  }
+  
+  .latex-tikz-placeholder .tikz-code {
+    background: #e8eef8;
+    color: #333;
+  }
+}

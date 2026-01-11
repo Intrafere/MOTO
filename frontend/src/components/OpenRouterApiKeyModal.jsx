@@ -1,0 +1,300 @@
+import React, { useState, useEffect } from 'react';
+import { openRouterAPI } from '../services/api';
+
+/**
+ * Modal for configuring the global OpenRouter API key.
+ * This key is used for per-role OpenRouter model selection (separate from boost).
+ * 
+ * Shows when:
+ * 1. User clicks "Use OpenRouter" on any role but no API key is configured
+ * 2. LM Studio is unavailable and user needs OpenRouter as primary provider
+ * 3. User explicitly wants to manage their API key
+ */
+export default function OpenRouterApiKeyModal({ isOpen, onClose, onKeySet, reason = 'setup' }) {
+  const [apiKey, setApiKey] = useState('');
+  const [testing, setTesting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+  const [error, setError] = useState('');
+
+  // Reset state when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setApiKey('');
+      setTestResult(null);
+      setError('');
+    }
+  }, [isOpen]);
+
+  // Load existing key from localStorage on mount
+  useEffect(() => {
+    const storedKey = localStorage.getItem('openrouter_api_key');
+    if (storedKey) {
+      setApiKey(storedKey);
+    }
+  }, []);
+
+  const handleTestConnection = async () => {
+    if (!apiKey.trim()) {
+      setError('Please enter an API key');
+      return;
+    }
+
+    setTesting(true);
+    setError('');
+    setTestResult(null);
+
+    try {
+      const result = await openRouterAPI.testConnection(apiKey.trim());
+      setTestResult(result);
+      if (!result.connected) {
+        setError(result.message || 'Connection failed');
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to test connection');
+      setTestResult({ connected: false });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const handleSaveKey = async () => {
+    if (!apiKey.trim()) {
+      setError('Please enter an API key');
+      return;
+    }
+
+    setSaving(true);
+    setError('');
+
+    try {
+      // Save to backend
+      await openRouterAPI.setApiKey(apiKey.trim());
+      
+      // Also save to localStorage for persistence
+      localStorage.setItem('openrouter_api_key', apiKey.trim());
+      
+      // Notify parent
+      if (onKeySet) {
+        onKeySet(apiKey.trim());
+      }
+      
+      onClose();
+    } catch (err) {
+      setError(err.message || 'Failed to save API key');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleClearKey = async () => {
+    try {
+      await openRouterAPI.clearApiKey();
+      localStorage.removeItem('openrouter_api_key');
+      setApiKey('');
+      setTestResult(null);
+      setError('');
+    } catch (err) {
+      setError(err.message || 'Failed to clear API key');
+    }
+  };
+
+  if (!isOpen) return null;
+
+  const reasonMessages = {
+    setup: 'Configure your OpenRouter API key to use OpenRouter models for any role.',
+    lm_studio_unavailable: 'LM Studio is not available. Configure OpenRouter to continue.',
+    no_key: 'An OpenRouter API key is required to use OpenRouter models.',
+  };
+
+  return (
+    <div 
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.75)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 10000,
+      }}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div 
+        style={{
+          backgroundColor: '#1a1a2e',
+          borderRadius: '12px',
+          padding: '2rem',
+          width: '500px',
+          maxWidth: '90vw',
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
+          border: '1px solid #333',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+          <h2 style={{ margin: 0, color: '#fff', fontSize: '1.4rem' }}>
+            OpenRouter API Key
+          </h2>
+          <button
+            onClick={onClose}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#888',
+              fontSize: '1.5rem',
+              cursor: 'pointer',
+              padding: '0.25rem',
+            }}
+          >
+            ×
+          </button>
+        </div>
+
+        <p style={{ color: '#aaa', marginBottom: '1.5rem', fontSize: '0.95rem' }}>
+          {reasonMessages[reason] || reasonMessages.setup}
+        </p>
+
+        {/* API Key Input */}
+        <div style={{ marginBottom: '1rem' }}>
+          <label style={{ display: 'block', color: '#ccc', marginBottom: '0.5rem', fontSize: '0.9rem' }}>
+            API Key
+          </label>
+          <input
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder="sk-or-v1-..."
+            style={{
+              width: '100%',
+              padding: '0.75rem',
+              backgroundColor: '#0d0d1a',
+              border: '1px solid #333',
+              borderRadius: '6px',
+              color: '#fff',
+              fontSize: '0.95rem',
+              boxSizing: 'border-box',
+            }}
+          />
+          <small style={{ color: '#666', display: 'block', marginTop: '0.5rem' }}>
+            Get your API key at{' '}
+            <a 
+              href="https://openrouter.ai/keys" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              style={{ color: '#6c5ce7' }}
+            >
+              openrouter.ai/keys
+            </a>
+          </small>
+        </div>
+
+        {/* Error Message */}
+        {error && (
+          <div style={{
+            backgroundColor: 'rgba(244, 67, 54, 0.1)',
+            border: '1px solid #f44336',
+            borderRadius: '6px',
+            padding: '0.75rem',
+            marginBottom: '1rem',
+            color: '#f44336',
+            fontSize: '0.9rem',
+          }}>
+            {error}
+          </div>
+        )}
+
+        {/* Test Result */}
+        {testResult && testResult.connected && (
+          <div style={{
+            backgroundColor: 'rgba(76, 175, 80, 0.1)',
+            border: '1px solid #4CAF50',
+            borderRadius: '6px',
+            padding: '0.75rem',
+            marginBottom: '1rem',
+            color: '#4CAF50',
+            fontSize: '0.9rem',
+          }}>
+            Connection successful! {testResult.model_count} models available.
+          </div>
+        )}
+
+        {/* Action Buttons */}
+        <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem' }}>
+          <button
+            onClick={handleTestConnection}
+            disabled={testing || !apiKey.trim()}
+            style={{
+              flex: 1,
+              padding: '0.75rem 1rem',
+              backgroundColor: '#333',
+              border: '1px solid #444',
+              borderRadius: '6px',
+              color: '#fff',
+              cursor: testing || !apiKey.trim() ? 'not-allowed' : 'pointer',
+              opacity: testing || !apiKey.trim() ? 0.6 : 1,
+              fontSize: '0.95rem',
+            }}
+          >
+            {testing ? 'Testing...' : 'Test Connection'}
+          </button>
+          
+          <button
+            onClick={handleSaveKey}
+            disabled={saving || !apiKey.trim()}
+            style={{
+              flex: 1,
+              padding: '0.75rem 1rem',
+              backgroundColor: '#6c5ce7',
+              border: 'none',
+              borderRadius: '6px',
+              color: '#fff',
+              cursor: saving || !apiKey.trim() ? 'not-allowed' : 'pointer',
+              opacity: saving || !apiKey.trim() ? 0.6 : 1,
+              fontSize: '0.95rem',
+              fontWeight: '500',
+            }}
+          >
+            {saving ? 'Saving...' : 'Save API Key'}
+          </button>
+        </div>
+
+        {/* Clear Key Button */}
+        {apiKey && (
+          <button
+            onClick={handleClearKey}
+            style={{
+              width: '100%',
+              marginTop: '1rem',
+              padding: '0.5rem',
+              backgroundColor: 'transparent',
+              border: '1px solid #444',
+              borderRadius: '6px',
+              color: '#888',
+              cursor: 'pointer',
+              fontSize: '0.85rem',
+            }}
+          >
+            Clear Stored API Key
+          </button>
+        )}
+
+        {/* Info Note */}
+        <p style={{ 
+          color: '#666', 
+          fontSize: '0.8rem', 
+          marginTop: '1.5rem',
+          padding: '0.75rem',
+          backgroundColor: '#0d0d1a',
+          borderRadius: '6px',
+        }}>
+          This API key is stored locally and sent to the backend for OpenRouter API calls.
+          It's separate from the Boost API key used for boost mode.
+        </p>
+      </div>
+    </div>
+  );
+}
+

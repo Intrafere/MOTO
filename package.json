@@ -1,0 +1,34 @@
+{
+  "name": "moto-math-variant",
+  "version": "1.0.0",
+  "description": "MOTO Math Variant - Autonomous AI Research System for Mathematical Paper Generation",
+  "scripts": {
+    "dev:backend": "cd backend && uvicorn api.main:app --reload --host 0.0.0.0 --port 8000",
+    "dev:frontend": "cd frontend && npm run dev",
+    "install:frontend": "cd frontend && npm install",
+    "build:frontend": "cd frontend && npm run build"
+  },
+  "keywords": [
+    "ai",
+    "rag",
+    "aggregator",
+    "mathematics",
+    "research",
+    "multi-agent",
+    "autonomous-research",
+    "llm",
+    "mathematical-papers",
+    "ai-research"
+  ],
+  "author": "Intrafere LLC",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Intrafere/MOTO"
+  },
+  "bugs": {
+    "url": "https://github.com/Intrafere/MOTO/issues"
+  },
+  "homepage": "https://intrafere.com"
+}
+
